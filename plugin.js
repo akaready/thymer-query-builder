@@ -6187,16 +6187,28 @@ remaining incomplete unfinished morning afternoon evening
     __name(linkTargets, "linkTargets");
     let openMenu = null;
     let chipMenu = null;
+    let menuAnchor = null;
     function closeMenu() {
+      const hadFocus = !!openMenu && (openMenu.contains(document.activeElement) || document.activeElement === document.body);
       openMenu?.remove();
       openMenu = null;
       chipMenu = null;
+      const back = menuAnchor;
+      menuAnchor = null;
+      if (hadFocus && pop) {
+        const to = back && back.isConnected && pop.contains(back) ? back : (
+          /** @type {HTMLElement | null} */
+          pop.querySelector(".words-input")
+        );
+        to?.focus({ preventScroll: true });
+      }
     }
     __name(closeMenu, "closeMenu");
     function place(menu, anchor2) {
       closeMenu();
       layer.appendChild(menu);
       openMenu = menu;
+      menuAnchor = anchor2;
       const r = anchor2.getBoundingClientRect();
       const position2 = /* @__PURE__ */ __name(() => {
         if (!menu.isConnected) return;
@@ -7601,11 +7613,6 @@ remaining incomplete unfinished morning afternoon evening
           use();
           return;
         }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          if (openMenu) closeMenu();
-          else close();
-        }
         const tag = (
           /** @type {HTMLElement} */
           e.target.tagName
@@ -7634,6 +7641,19 @@ remaining incomplete unfinished morning afternoon evening
         popEl.querySelectorAll(".is-lit").forEach((n) => n.classList.remove("is-lit"));
       });
       layer.appendChild(popEl);
+      const onEsc = /* @__PURE__ */ __name((e) => {
+        if (e.key !== "Escape" || e.isComposing || pop !== popEl) return;
+        if (openMenu && openMenu.contains(
+          /** @type {Node} */
+          e.target
+        )) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (openMenu) closeMenu();
+        else close();
+      }, "onEsc");
+      document.addEventListener("keydown", onEsc, true);
+      teardown.push(() => document.removeEventListener("keydown", onEsc, true));
       const initial = (opts.query || "").trim();
       if (initial) {
         m.root = parse(initial, ctxNames());
@@ -7779,7 +7799,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.4";
+  var PLUGIN_VERSION = "1.3.5";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
