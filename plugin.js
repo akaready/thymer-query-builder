@@ -5590,8 +5590,10 @@ remaining incomplete unfinished morning afternoon evening
 	position: relative; z-index: 2; width: 640px; min-height: 440px; display: flex; flex-direction: column;
 	background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
 	box-shadow: 0 30px 80px -20px rgba(0,0,0,.55), 0 10px 30px -10px rgba(0,0,0,.35);
-	animation: plgqb-pop-in .22s cubic-bezier(.2,.9,.3,1.2);
 }
+/* Card and drawer arrive together, as one piece. */
+.plg-qb-ui .qb3 { animation: plgqb-pop-in .18s cubic-bezier(.2,.9,.3,1.1); transform-origin: top left; }
+@media (prefers-reduced-motion: reduce) { .plg-qb-ui .qb3 { animation: none; } }
 .plg-qb-ui .qb3-head { display: flex; align-items: center; gap: 4px; padding: 12px 10px 4px 14px; }
 .plg-qb-ui .qb3-logo { width: 24px; height: 24px; margin-right: 6px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; color: var(--logo-color);
 	background: color-mix(in srgb, var(--logo-color) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--logo-color) 30%, transparent); }
@@ -5602,7 +5604,7 @@ remaining incomplete unfinished morning afternoon evening
 	position: relative; z-index: 1; width: 316px; margin: 16px 0 16px -18px; flex: none;
 	background: var(--panel-bg-color); border: 1px solid var(--line); border-left: 0; border-radius: 0 12px 12px 0;
 	box-shadow: inset 14px 0 18px -14px rgba(0,0,0,.55), 0 20px 40px -20px rgba(0,0,0,.5);
-	transition: width .42s cubic-bezier(.22,1,.36,1), opacity .3s ease-out .04s, margin .42s cubic-bezier(.22,1,.36,1); overflow: hidden;
+	transition: width .28s cubic-bezier(.2,.8,.2,1), opacity .2s, margin .28s; overflow: hidden;
 }
 .plg-qb-ui .qb3.is-closed .drawer { width: 0; opacity: 0; border-width: 0; }
 @media (prefers-reduced-motion: reduce) { .plg-qb-ui .drawer { transition: none; } }
@@ -5912,6 +5914,7 @@ remaining incomplete unfinished morning afternoon evening
 	box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 	opacity: 0.85;
 }
+.${PILL_CLASS}:focus-visible { opacity: 1; outline: 2px solid var(--logo-color, #04d1ab); outline-offset: 2px; }
 .${PILL_CLASS}:hover { opacity: 1; background: color-mix(in srgb, var(--logo-color, #04d1ab) 14%, var(--cmdpal-bg-color, #1e1e22)); }
 .${PILL_CLASS}[hidden] { display: none; }
 `;
@@ -7286,7 +7289,6 @@ remaining incomplete unfinished morning afternoon evening
     __name(guideView, "guideView");
     let anchor = null;
     let anchorEl = null;
-    let drawerReady = false;
     let mainPref = (
       /** @type {number | null} */
       null
@@ -7320,7 +7322,7 @@ remaining incomplete unfinished morning afternoon evening
         fits = mainW + drawerW - DRAWER_TUCK <= room;
         if (!fits) mainW = Math.min(wantMain, room);
       }
-      pop.classList.toggle("is-closed", !wantDrawer || !fits || !drawerReady);
+      pop.classList.toggle("is-closed", !wantDrawer || !fits);
       pop.classList.toggle("is-cramped", !fits);
       main.style.width = `${Math.round(mainW)}px`;
       pop.style.setProperty("--qb-main-w", `${Math.round(mainW)}px`);
@@ -7389,7 +7391,6 @@ remaining incomplete unfinished morning afternoon evening
     async function open(opts = {}) {
       close(true);
       if (!layer.isConnected) document.body.appendChild(layer);
-      drawerReady = false;
       anchorEl = opts.anchor instanceof Element ? opts.anchor : null;
       anchor = anchorEl ? anchorEl.getBoundingClientRect() : (
         /** @type {DOMRect | null} */
@@ -7550,18 +7551,6 @@ remaining incomplete unfinished morning afternoon evening
       } else m.emit();
       position();
       syncSide();
-      const reveal = /* @__PURE__ */ __name(() => {
-        if (drawerReady || pop !== popEl) return;
-        drawerReady = true;
-        position();
-      }, "reveal");
-      if (matchMedia("(prefers-reduced-motion: reduce)").matches) reveal();
-      else {
-        main.addEventListener("animationend", (e) => {
-          if (e.target === main) reveal();
-        }, { once: true });
-        setTimeout(reveal, 320);
-      }
       const ro = new ResizeObserver(() => position());
       ro.observe(popEl);
       const onResize = /* @__PURE__ */ __name(() => {
@@ -7697,7 +7686,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.2";
+  var PLUGIN_VERSION = "1.3.3";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
@@ -7892,6 +7881,7 @@ remaining incomplete unfinished morning afternoon evening
         pill.type = "button";
         pill.className = PILL_CLASS;
         pill.title = this._pillTitle();
+        pill.setAttribute("aria-label", "Open the Query Builder for this field");
         const glyph = document.createElement("span");
         glyph.className = "ti ti-filter";
         pill.append(glyph, document.createTextNode("Build"));
@@ -7899,6 +7889,19 @@ remaining incomplete unfinished morning afternoon evening
           ev.preventDefault();
           ev.stopPropagation();
           if (this._pillTarget) this._openBuilder(this._pillTarget);
+        });
+        pill.addEventListener("keydown", (ev) => {
+          const t = this._pillTarget;
+          if (!t) return;
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._openBuilder(t);
+          } else if (ev.key === "Escape" || ev.key === "Tab" && ev.shiftKey) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            t.focus();
+          }
         });
         document.body.appendChild(pill);
         this._pill = pill;
@@ -7939,6 +7942,12 @@ remaining incomplete unfinished morning afternoon evening
     /* ── Hotkey ────────────────────────────────────────────────────────── */
     /** @param {KeyboardEvent} e */
     _onKeyDown(e) {
+      if (!this._disabled && e.key === "Tab" && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey && this._pill && !this._pill.hidden && this._pillTarget && document.activeElement === this._pillTarget) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._pill.focus();
+        return;
+      }
       if (this._disabled || !this._settings.hotkey) return;
       if (!eventMatchesCombo(e, this._settings.hotkey)) return;
       e.preventDefault();

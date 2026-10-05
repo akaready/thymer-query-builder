@@ -28,7 +28,7 @@ Enjoy! 🙏
 
 ## ⌨️ Use
 
-Click into a query field — the Search panel, the journal's **Upcoming**, any field Thymer parses as a query — and a small **Build** pill appears on it. Click it, or press **⌥Q**. ⌥Q works in any text field too, and anywhere else it opens the builder on its own, with **Copy** in place of **Use**.
+Click into a query field — the Search panel, the journal's **Upcoming**, any field Thymer parses as a query — and a small **Build** pill appears on it. Click it, **Tab** to it and press **Enter**, or press **⌥Q**. ⌥Q works in any text field too, and anywhere else it opens the builder on its own, with **Copy** in place of **Use**.
 
 ### Describe it
 
