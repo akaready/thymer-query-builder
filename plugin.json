@@ -1,0 +1,18 @@
+{
+	"ver": 1,
+	"version": "1.1.5",
+	"name": "Query Builder",
+	"icon": "filter",
+	"description": "Build Thymer search queries in plain English or with colour-coded chips — right on Search, Upcoming and every other query field.",
+	"instructions": "Click into any query field (Search, Upcoming…) and press the \"Build\" pill — or press Alt+Q in any text field. Describe what you want in plain English, or click + to add filters; the live query, a plain-English readout and the matching items update as you go. ⌘↵ (Ctrl+Enter) writes the query into the field. Everything runs locally — no API key needed.",
+	"author": "@akaready",
+	"homepage": "https://akaready.com",
+	"repository": "https://github.com/akaready/thymer-query-builder",
+	"coffee": "https://buymeacoffee.com/akaready",
+	"__source_repo": "https://github.com/akaready/thymer-query-builder",
+	"__source_files": {
+		"branch": "main",
+		"json": "plugin.json",
+		"js": "plugin.js"
+	}
+}
