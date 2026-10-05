@@ -70,6 +70,10 @@ The drawer behind the builder has two tabs:
 - **Matches** lists what the query finds right now. Click an item to open it.
 - **Guide** walks through the syntax in the same order as the **+** menu and ends with examples you can load in one click. Loading an example over your own query can be undone (**⌘Z**).
 
+### Size
+
+The builder opens at the width of the field you came from. To resize the builder or the drawer, drag its right edge; double-click the edge to reset it. Your widths are remembered per workspace. On a narrow window the builder and drawer shrink so both still fit.
+
 Settings: command palette → **Plugin: Query Builder**. The only setting is the shortcut.
 
 

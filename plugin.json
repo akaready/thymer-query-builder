@@ -1,6 +1,6 @@
 {
 	"ver": 1,
-	"version": "1.2.0",
+	"version": "1.3.0",
 	"name": "Query Builder",
 	"icon": "filter",
 	"description": "Build Thymer search queries in plain English or with colour-coded chips — right on Search, Upcoming and every other query field.",

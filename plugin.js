@@ -5719,8 +5719,15 @@ remaining incomplete unfinished morning afternoon evening
 .plg-qb-ui .qb3 ::-webkit-scrollbar-track, .plg-qb-ui .menu ::-webkit-scrollbar-track { background: transparent; }
 .plg-qb-ui .qb3 ::-webkit-scrollbar-thumb, .plg-qb-ui .menu ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text-muted) 35%, transparent); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .plg-qb-ui .qb3 ::-webkit-scrollbar-thumb:hover, .plg-qb-ui .menu ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--text-muted) 60%, transparent); }
-.plg-qb-ui .drawer { width: 372px; }
-.plg-qb-ui .drawer-inner { width: 354px; }
+.plg-qb-ui .drawer { width: var(--qb-drawer-w, 372px); }
+.plg-qb-ui .drawer-inner { width: calc(var(--qb-drawer-w, 372px) - 18px); }
+.plg-qb-ui .qb-resize { position: absolute; top: 14px; bottom: 14px; right: -5px; width: 10px; cursor: ew-resize; z-index: 5; touch-action: none; }
+.plg-qb-ui .qb-resize::after { content: ''; position: absolute; top: 50%; left: 4px; width: 2px; height: 36px; margin-top: -18px; border-radius: 2px; background: var(--text-muted); opacity: 0; transition: opacity .15s; }
+.plg-qb-ui .qb-resize:hover::after, .plg-qb-ui .qb3.is-resizing .qb-resize::after { opacity: .5; }
+.plg-qb-ui .qb-resize--main { right: auto; left: calc(var(--qb-main-w, 640px) - 5px); }
+.plg-qb-ui .qb-resize--drawer { right: 0; }
+.plg-qb-ui .qb3.is-closed .qb-resize--drawer { display: none; }
+.plg-qb-ui .qb3.is-resizing, .plg-qb-ui .qb3.is-resizing * { transition: none !important; user-select: none; cursor: ew-resize; }
 .plg-qb-ui .drawer-tabs { margin: 12px 12px 8px 10px; padding: 3px; gap: 3px; border-radius: 9px; background: var(--inset); border: 1px solid var(--line); }
 .plg-qb-ui .dtab { flex: 1; justify-content: center; padding: 5px 10px; border-radius: 6px; font-weight: 500; }
 .plg-qb-ui .dtab.is-on { background: var(--surface); color: var(--text-default); box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 0 0 1px var(--line); }
@@ -5909,6 +5916,14 @@ remaining incomplete unfinished morning afternoon evening
   var IS_MAC = typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent);
   var Z_POPOVER = 2147483e3;
   var VIEWPORT_MARGIN = 8;
+  var MAIN_WIDTH = 640;
+  var MAIN_MIN = 480;
+  var MAIN_MAX = 960;
+  var DRAWER_WIDTH = 372;
+  var DRAWER_MIN = 280;
+  var DRAWER_MAX = 560;
+  var DRAWER_TUCK = 18;
+  var clampN = /* @__PURE__ */ __name((n, lo, hi) => Math.max(lo, Math.min(hi, n)), "clampN");
   function h2(tag, props, ...kids) {
     const el2 = document.createElement(tag);
     for (const [k, v] of Object.entries(props || {})) {
@@ -7266,6 +7281,14 @@ remaining incomplete unfinished morning afternoon evening
     }
     __name(guideView, "guideView");
     let anchor = null;
+    let mainPref = (
+      /** @type {number | null} */
+      null
+    );
+    let drawerPref = (
+      /** @type {number | null} */
+      null
+    );
     let side = (
       /** @type {'below' | 'above' | 'free'} */
       "free"
@@ -7277,8 +7300,24 @@ remaining incomplete unfinished morning afternoon evening
         /** @type {HTMLElement} */
         pop.querySelector(".qb3-main")
       );
+      const room = vw - 2 * VIEWPORT_MARGIN;
+      const wantMain = mainPref ?? (anchor ? clampN(Math.round(anchor.width), MAIN_MIN, MAIN_MAX) : MAIN_WIDTH);
+      const wantDrawerW = drawerPref ?? DRAWER_WIDTH;
       const wantDrawer = !pop.classList.contains("is-closed-user");
-      pop.classList.toggle("is-closed", !wantDrawer || vw < 980);
+      let mainW = Math.min(wantMain, room);
+      let drawerW = wantDrawerW;
+      let fits = true;
+      if (wantDrawer) {
+        mainW = Math.max(Math.min(wantMain, room - (drawerW - DRAWER_TUCK)), Math.min(MAIN_MIN, room));
+        drawerW = Math.max(DRAWER_MIN, Math.min(drawerW, room - mainW + DRAWER_TUCK));
+        fits = mainW + drawerW - DRAWER_TUCK <= room;
+        if (!fits) mainW = Math.min(wantMain, room);
+      }
+      pop.classList.toggle("is-closed", !wantDrawer || !fits);
+      pop.classList.toggle("is-cramped", !fits);
+      main.style.width = `${Math.round(mainW)}px`;
+      pop.style.setProperty("--qb-main-w", `${Math.round(mainW)}px`);
+      pop.style.setProperty("--qb-drawer-w", `${Math.round(drawerW)}px`);
       main.style.maxHeight = "";
       const w = pop.offsetWidth, ph = pop.offsetHeight;
       const left = anchor ? anchor.left : (vw - w) / 2;
@@ -7300,11 +7339,57 @@ remaining incomplete unfinished morning afternoon evening
       pop.style.top = `${Math.round(Math.max(VIEWPORT_MARGIN, Math.min(top, vh - Math.min(ph, vh - 2 * VIEWPORT_MARGIN) - VIEWPORT_MARGIN)))}px`;
     }
     __name(position, "position");
+    function resizeHandle(which, o) {
+      const el2 = h2("div", { class: `qb-resize qb-resize--${which}`, title: "Drag to resize \xB7 double-click to reset", "aria-hidden": "true" });
+      el2.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        el2.setPointerCapture(e.pointerId);
+        const x0 = e.clientX, w0 = o.get();
+        pop?.classList.add("is-resizing");
+        const move = /* @__PURE__ */ __name((ev) => {
+          o.set(w0 + ev.clientX - x0);
+          position();
+        }, "move");
+        const up = /* @__PURE__ */ __name(() => {
+          el2.removeEventListener("pointermove", move);
+          el2.removeEventListener("pointerup", up);
+          el2.removeEventListener("pointercancel", up);
+          pop?.classList.remove("is-resizing");
+          try {
+            localStorage.setItem(deps.storageKey(o.key), String(Math.round(o.get())));
+          } catch {
+          }
+        }, "up");
+        el2.addEventListener("pointermove", move);
+        el2.addEventListener("pointerup", up);
+        el2.addEventListener("pointercancel", up);
+      });
+      el2.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        o.reset();
+        try {
+          localStorage.removeItem(deps.storageKey(o.key));
+        } catch {
+        }
+        position();
+      });
+      return el2;
+    }
+    __name(resizeHandle, "resizeHandle");
     async function open(opts = {}) {
       close(true);
       if (!layer.isConnected) document.body.appendChild(layer);
       anchor = opts.anchor || null;
       side = "free";
+      const storedWidth = /* @__PURE__ */ __name((key) => {
+        const n = Number(localStorage.getItem(deps.storageKey(key)));
+        return Number.isFinite(n) && n > 0 ? n : null;
+      }, "storedWidth");
+      mainPref = storedWidth("width");
+      drawerPref = storedWidth("drawer-width");
       data.resetCounts();
       if (!data.loaded) await data.load();
       else void data.load();
@@ -7320,12 +7405,14 @@ remaining incomplete unfinished morning afternoon evening
           localStorage.setItem(deps.storageKey("drawer"), closed ? "0" : "1");
         } catch {
         }
-        syncSide();
         position();
+        syncSide();
       }, "onClick") });
       const syncSide = /* @__PURE__ */ __name(() => {
         const closed = !!pop?.classList.contains("is-closed-user");
-        sideBtn.classList.toggle("is-on", !closed);
+        const cramped = !!pop?.classList.contains("is-cramped");
+        sideBtn.title = cramped ? "Sidebar \u2014 widen the window to show it" : "Sidebar";
+        sideBtn.classList.toggle("is-on", !closed && !cramped);
         sideBtn.replaceChildren(icon(closed ? "ti-layout-sidebar-right-expand" : "ti-layout-sidebar-right-collapse"));
       }, "syncSide");
       const use = /* @__PURE__ */ __name(() => {
@@ -7376,6 +7463,29 @@ remaining incomplete unfinished morning afternoon evening
       };
       pop = h2("div", { class: `qb3 qb3--dock${drawerUserClosed ? " is-closed-user" : ""}`, role: "dialog", "aria-label": "Query Builder" }, main, d.el);
       syncSide();
+      pop.appendChild(resizeHandle("main", {
+        get: /* @__PURE__ */ __name(() => main.offsetWidth, "get"),
+        set: /* @__PURE__ */ __name((w) => {
+          mainPref = clampN(w, MAIN_MIN, MAIN_MAX);
+        }, "set"),
+        key: "width",
+        reset: /* @__PURE__ */ __name(() => {
+          mainPref = null;
+        }, "reset")
+      }));
+      d.el.appendChild(resizeHandle("drawer", {
+        get: /* @__PURE__ */ __name(() => (
+          /** @type {HTMLElement} */
+          d.el.offsetWidth
+        ), "get"),
+        set: /* @__PURE__ */ __name((w) => {
+          drawerPref = clampN(w, DRAWER_MIN, DRAWER_MAX);
+        }, "set"),
+        key: "drawer-width",
+        reset: /* @__PURE__ */ __name(() => {
+          drawerPref = null;
+        }, "reset")
+      }));
       const popEl = (
         /** @type {HTMLElement} */
         pop
@@ -7427,9 +7537,13 @@ remaining incomplete unfinished morning afternoon evening
         m.emit();
       } else m.emit();
       position();
+      syncSide();
       const ro = new ResizeObserver(() => position());
       ro.observe(popEl);
-      const onResize = /* @__PURE__ */ __name(() => position(), "onResize");
+      const onResize = /* @__PURE__ */ __name(() => {
+        position();
+        syncSide();
+      }, "onResize");
       window.addEventListener("resize", onResize);
       const onDown = /* @__PURE__ */ __name((e) => {
         const t = (
@@ -7540,7 +7654,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.2.0";
+  var PLUGIN_VERSION = "1.3.0";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
@@ -7800,7 +7914,8 @@ remaining incomplete unfinished morning afternoon evening
       this._hidePill();
       this._target = el2;
       const query = el2 ? readField(el2).trim() : this._recall();
-      void this._builder.open({ query, anchor: el2 ? el2.getBoundingClientRect() : null, canApply: !!el2 });
+      const box = el2 ? el2.closest(".query-input") || el2 : null;
+      void this._builder.open({ query, anchor: box ? box.getBoundingClientRect() : null, canApply: !!el2 });
     }
     /** @param {string} q */
     _apply(q) {
