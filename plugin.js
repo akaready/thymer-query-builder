@@ -7281,6 +7281,7 @@ remaining incomplete unfinished morning afternoon evening
     }
     __name(guideView, "guideView");
     let anchor = null;
+    let anchorEl = null;
     let mainPref = (
       /** @type {number | null} */
       null
@@ -7295,6 +7296,7 @@ remaining incomplete unfinished morning afternoon evening
     );
     function position() {
       if (!pop) return;
+      if (anchorEl && anchorEl.isConnected) anchor = anchorEl.getBoundingClientRect();
       const vw = window.innerWidth, vh = window.innerHeight;
       const main = (
         /** @type {HTMLElement} */
@@ -7382,7 +7384,11 @@ remaining incomplete unfinished morning afternoon evening
     async function open(opts = {}) {
       close(true);
       if (!layer.isConnected) document.body.appendChild(layer);
-      anchor = opts.anchor || null;
+      anchorEl = opts.anchor instanceof Element ? opts.anchor : null;
+      anchor = anchorEl ? anchorEl.getBoundingClientRect() : (
+        /** @type {DOMRect | null} */
+        opts.anchor || null
+      );
       side = "free";
       const storedWidth = /* @__PURE__ */ __name((key) => {
         const n = Number(localStorage.getItem(deps.storageKey(key)));
@@ -7396,15 +7402,14 @@ remaining incomplete unfinished morning afternoon evening
       const m = createModel();
       model = m;
       const canApply = !!opts.canApply;
-      const drawerUserClosed = localStorage.getItem(deps.storageKey("drawer")) === "0";
+      try {
+        localStorage.removeItem(deps.storageKey("drawer"));
+      } catch {
+      }
       const d = drawer(m);
       const sideBtn = h2("button", { class: "icon-btn", title: "Sidebar", onClick: /* @__PURE__ */ __name(() => {
         const closed = !pop?.classList.contains("is-closed-user");
         pop?.classList.toggle("is-closed-user", closed);
-        try {
-          localStorage.setItem(deps.storageKey("drawer"), closed ? "0" : "1");
-        } catch {
-        }
         position();
         syncSide();
       }, "onClick") });
@@ -7461,7 +7466,7 @@ remaining incomplete unfinished morning afternoon evening
         clearTimeout(undoTimer);
         undoTimer = window.setTimeout(hideUndo, 8e3);
       };
-      pop = h2("div", { class: `qb3 qb3--dock${drawerUserClosed ? " is-closed-user" : ""}`, role: "dialog", "aria-label": "Query Builder" }, main, d.el);
+      pop = h2("div", { class: "qb3 qb3--dock", role: "dialog", "aria-label": "Query Builder" }, main, d.el);
       syncSide();
       pop.appendChild(resizeHandle("main", {
         get: /* @__PURE__ */ __name(() => main.offsetWidth, "get"),
@@ -7558,7 +7563,26 @@ remaining incomplete unfinished morning afternoon evening
         close();
       }, "onDown");
       setTimeout(() => document.addEventListener("mousedown", onDown, true), 0);
+      let lastBox = "";
+      let follow = 0;
+      const check = /* @__PURE__ */ __name(() => {
+        if (!anchorEl || !anchorEl.isConnected) return;
+        const r = anchorEl.getBoundingClientRect();
+        const box = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+        if (box !== lastBox) {
+          if (lastBox) position();
+          lastBox = box;
+        }
+      }, "check");
+      const track = /* @__PURE__ */ __name(() => {
+        check();
+        follow = requestAnimationFrame(track);
+      }, "track");
+      if (anchorEl) follow = requestAnimationFrame(track);
+      const followTimer = anchorEl ? window.setInterval(check, 200) : 0;
       teardown.push(() => {
+        cancelAnimationFrame(follow);
+        clearInterval(followTimer);
         ro.disconnect();
         window.removeEventListener("resize", onResize);
         document.removeEventListener("mousedown", onDown, true);
@@ -7654,7 +7678,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.0";
+  var PLUGIN_VERSION = "1.3.1";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
@@ -7915,7 +7939,7 @@ remaining incomplete unfinished morning afternoon evening
       this._target = el2;
       const query = el2 ? readField(el2).trim() : this._recall();
       const box = el2 ? el2.closest(".query-input") || el2 : null;
-      void this._builder.open({ query, anchor: box ? box.getBoundingClientRect() : null, canApply: !!el2 });
+      void this._builder.open({ query, anchor: box, canApply: !!el2 });
     }
     /** @param {string} q */
     _apply(q) {
