@@ -41,13 +41,15 @@ Type what you want in plain English:
 
 Each word lights up in the colour of the filter it became. Typos get corrected, and your own collection, field, tag and people names are understood. Anything left over becomes a text search.
 
+Know the syntax? Type it. `@todo`, `@due <= "today"` or `@Projects.Status = "Active"` are kept exactly as written, and you can mix them with plain English: *`@todo` due tomorrow tagged bug*.
+
 **Did you mean?** Some sentences can mean more than one thing. In a workspace with a Tasks collection, *tasks for active projects* could mean:
 
 - task lines written inside active projects,
 - records in your Tasks collection whose **Project** is an active project, or
 - the active projects themselves.
 
-The builder lists each reading with its match count, best first, and you click the one you meant. For the "linked" reading, it looks up the matching projects and writes the query for you. If its first guess finds nothing but another reading does, it switches on its own.
+Once you pause typing, the builder offers the best other reading on one line. Click it to switch, or open the list to see every reading with its match count. For the "linked" reading, it looks up the matching projects and writes the query for you. If its first guess finds nothing but another reading does, it switches on its own.
 
 ### Or build it
 

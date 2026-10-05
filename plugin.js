@@ -4290,8 +4290,26 @@ someone somebody anyone anybody everyone everybody
   }
   __name(person, "person");
   var PERSON = "me|myself|[a-z][a-z'-]+";
-  var LEADING_RULES = 3;
+  var LEADING_RULES = 4;
+  var SYNTAX = /(?<![\w@])@(?:"[^"]+"|[\w-]+)(?:\.(?:"[^"]+"|[\w-]+))?(?:\s*(?:!=|<=|>=|=|<|>)\s*(?:"[^"]*"|@?[\w-]+|-?\d+(?:\.\d+)?))?/g;
   var STATIC_RULES = [
+    // Real query syntax is taken as written — whoever types `@todo` or
+    // `@Projects.Status = "Active"` knows what they want — and mixes freely with
+    // plain English around it. Runs before the quote rule, which would otherwise
+    // read the quoted half of `@"next monday"` as text.
+    { kind: "*", re: SYNTAX, make: /* @__PURE__ */ __name((m, ctx, src) => {
+      const frag = src.slice(m.index, m.index + m[0].length);
+      const tree = parse(frag, { collections: ctx.collections.map((c) => c.name), users: ctx.users });
+      const only = tree.items.length === 1 ? tree.items[0] : null;
+      if (only && only.kind !== "raw" && only.kind !== "group") return [
+        /** @type {Cond} */
+        only
+      ];
+      const bare2 = /^@(?:"([^"]+)"|([\w-]+))\.(?:"([^"]+)"|([\w-]+))$/.exec(frag);
+      const coll = bare2 && ctx.collections.find((c) => c.name.toLowerCase() === String(bare2[1] || bare2[2]).toLowerCase());
+      const field = coll && coll.fields.find((f) => f.label.toLowerCase() === String(bare2?.[3] || bare2?.[4]).toLowerCase());
+      return coll && field ? [{ kind: "field", coll: coll.name, field: field.label, op: "!=", value: "" }] : null;
+    }, "make") },
     // Literal syntax the user already knows wins outright.
     { kind: "text", re: /"([^"]+)"/g, make: /* @__PURE__ */ __name((m) => [{ kind: "text", value: m[1], exact: true }], "make") },
     { kind: "tag", re: /(?<![\w])(?:(?:tagged(?: with)?|tags?|labell?ed|with (?:the )?tag)\s+)?#([\w/-]+)/g, make: /* @__PURE__ */ __name((m) => [{ kind: "tag", value: m[1].replace(/\/+$/, ""), prefix: /\/$/.test(m[1]) }], "make") },
@@ -4723,10 +4741,10 @@ remaining incomplete unfinished morning afternoon evening
         const start = m.index + lead;
         const end = m.index + m[0].trimEnd().length;
         if (end <= start || !free(start, end)) continue;
-        const conds = rule.make(m, ctx);
+        const conds = rule.make(m, ctx, text);
         if (!conds || !conds.length) continue;
         claim(start, end);
-        matches.push({ start, end, kind: rule.kind, conds });
+        matches.push({ start, end, kind: rule.kind === "*" ? conds[0].kind : rule.kind, conds });
       }
     }
     matches.sort((a, b) => a.start - b.start);
@@ -5591,6 +5609,12 @@ remaining incomplete unfinished morning afternoon evening
 	background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
 	box-shadow: 0 30px 80px -20px rgba(0,0,0,.55), 0 10px 30px -10px rgba(0,0,0,.35);
 }
+.plg-qb-ui .qb3-main { transition: height .16s cubic-bezier(.2,.8,.2,1); }
+.plg-qb-ui .qb3-main.is-sizing { overflow: hidden; }
+/* Space the card keeps after shrinking opens above the query, not under it. */
+.plg-qb-ui .qb3-body--dock > .dock { margin-top: auto; }
+.plg-qb-ui .qb3-main:not(.is-capped):not(.is-sizing) { overflow: visible; }
+@media (prefers-reduced-motion: reduce) { .plg-qb-ui .qb3-main { transition: none; } }
 /* Card and drawer arrive together, as one piece. */
 .plg-qb-ui .qb3 { animation: plgqb-pop-in .18s cubic-bezier(.2,.9,.3,1.1); transform-origin: top left; }
 @media (prefers-reduced-motion: reduce) { .plg-qb-ui .qb3 { animation: none; } }
@@ -5654,6 +5678,14 @@ remaining incomplete unfinished morning afternoon evening
 .plg-qb-ui .sug-n { font-size: 10.5px; font-variant-numeric: tabular-nums; padding: 1px 5px; border-radius: 5px; background: var(--inset); color: var(--text-muted); }
 .plg-qb-ui .readings { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 6px; margin-top: -2px; border-radius: 9px; background: var(--inset); }
 .plg-qb-ui .readings:empty { display: none; }
+.plg-qb-ui .readings:not(.is-open) { flex-direction: row; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; }
+.plg-qb-ui .readings:not(.is-open) .readings-label { padding: 0; flex: none; }
+.plg-qb-ui .readings:not(.is-open) .reading { flex: 1; min-width: 0; }
+.plg-qb-ui .readings-head { display: flex; align-items: center; padding: 0 0 0 6px; }
+.plg-qb-ui .readings-head .readings-label { padding: 0; }
+.plg-qb-ui .readings-more { all: unset; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 7px; border-radius: 6px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.plg-qb-ui .readings-more:hover { color: var(--text-default); background: color-mix(in srgb, var(--text-default) 6%, transparent); }
+.plg-qb-ui .readings-more:focus-visible { outline: 2px solid var(--logo-color, #04d1ab); outline-offset: -2px; }
 .plg-qb-ui .readings-label { font-size: 10.5px; letter-spacing: .02em; color: var(--text-muted); padding: 0 6px 3px; }
 .plg-qb-ui .reading { all: unset; cursor: pointer; display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12px; color: var(--text-muted); }
 .plg-qb-ui .reading:hover { color: var(--text-default); background: color-mix(in srgb, var(--text-default) 6%, transparent); }
@@ -5923,6 +5955,7 @@ remaining incomplete unfinished morning afternoon evening
   var IS_MAC = typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent);
   var Z_POPOVER = 2147483e3;
   var VIEWPORT_MARGIN = 8;
+  var READINGS_SETTLE_MS = 400;
   var MAIN_WIDTH = 640;
   var MAIN_MIN = 480;
   var MAIN_MAX = 960;
@@ -6696,6 +6729,8 @@ remaining incomplete unfinished morning afternoon evening
         /** The reading on show; `readingPicked` once the user chose it themselves. */
         reading: "",
         readingPicked: false,
+        /** When the sentence last changed — "Did you mean" waits for a pause. */
+        typedAt: 0,
         /** @param {() => void} fn */
         on(fn) {
           subs.add(fn);
@@ -6712,6 +6747,7 @@ remaining incomplete unfinished morning afternoon evening
         /** @param {string} t */
         setText(t) {
           m.text = t;
+          m.typedAt = Date.now();
           const r = parseNatural(t, data.ctx);
           m.root = r.root;
           m.matched = r.matches;
@@ -7074,9 +7110,24 @@ remaining incomplete unfinished morning afternoon evening
     __name(chipsRow, "chipsRow");
     function readingsRow(m) {
       const row = h2("div", { class: "readings" });
+      let visible = false;
+      let expanded = false;
+      let settle = 0;
       const paint = /* @__PURE__ */ __name(() => {
-        if (m.source !== "words" || m.readings.length < 2) {
+        const want = m.source === "words" && m.readings.length >= 2;
+        if (want !== visible) {
+          const wait = READINGS_SETTLE_MS - (Date.now() - (m.typedAt || 0));
+          if (wait > 0) {
+            clearTimeout(settle);
+            settle = window.setTimeout(paint, wait + 10);
+            return;
+          }
+          visible = want;
+          if (!visible) expanded = false;
+        }
+        if (!visible) {
           row.replaceChildren();
+          row.classList.remove("is-open");
           return;
         }
         const rows = m.readings.map((r, i) => {
@@ -7095,23 +7146,40 @@ remaining incomplete unfinished morning afternoon evening
             return;
           }
         }
+        const others = rows.filter((x) => x.r.id !== m.reading && x.n !== 0);
+        if (!others.length) {
+          row.replaceChildren();
+          row.classList.remove("is-open");
+          return;
+        }
+        const choice = /* @__PURE__ */ __name(({ r, n }) => h2(
+          "button",
+          {
+            class: `reading${r.id === m.reading ? " is-on" : ""}${n === 0 ? " is-empty" : ""}`,
+            title: r.id === m.reading ? "Showing this" : "Use this reading",
+            onClick: /* @__PURE__ */ __name(() => m.pickReading(r.id), "onClick")
+          },
+          icon(r.id === m.reading ? "ti-circle-dot" : "ti-circle", "reading-dot"),
+          h2("span", { class: "reading-text" }, readingLabel(r)),
+          h2("span", { class: "sug-n" }, formatCount(n))
+        ), "choice");
+        const toggle = h2("button", {
+          class: "readings-more",
+          title: expanded ? "Fewer" : "Every reading",
+          onClick: /* @__PURE__ */ __name(() => {
+            expanded = !expanded;
+            paint();
+          }, "onClick")
+        }, expanded ? "" : `+${rows.length - 1}`, icon(expanded ? "ti-chevron-up" : "ti-chevron-down"));
+        row.classList.toggle("is-open", expanded);
         row.replaceChildren(
-          h2("span", { class: "readings-label" }, "Did you mean"),
-          ...rows.slice(0, 4).map(({ r, n }) => h2(
-            "button",
-            {
-              class: `reading${r.id === m.reading ? " is-on" : ""}${n === 0 ? " is-empty" : ""}`,
-              title: r.id === m.reading ? "Showing this" : "Use this reading",
-              onClick: /* @__PURE__ */ __name(() => m.pickReading(r.id), "onClick")
-            },
-            icon(r.id === m.reading ? "ti-circle-dot" : "ti-circle", "reading-dot"),
-            h2("span", { class: "reading-text" }, readingLabel(r)),
-            h2("span", { class: "sug-n" }, formatCount(n))
-          ))
+          expanded ? h2("div", { class: "readings-head" }, h2("span", { class: "readings-label" }, "Did you mean"), h2("span", { class: "spacer" }), toggle) : h2("span", { class: "readings-label" }, "Did you mean"),
+          ...expanded ? rows.slice(0, 5).map(choice) : [choice(others[0]), toggle]
         );
       }, "paint");
       m.on(paint);
       teardown.push(data.on(paint));
+      teardown.push(() => clearTimeout(settle));
       paint();
       return row;
     }
@@ -7301,6 +7369,33 @@ remaining incomplete unfinished morning afternoon evening
       /** @type {'below' | 'above' | 'free'} */
       "free"
     );
+    let heightFloor = 0;
+    let sizingTimer = 0;
+    function fitHeight(main) {
+      const cap = window.innerHeight - 2 * VIEWPORT_MARGIN;
+      const shown = main.offsetHeight;
+      const had = main.style.height;
+      main.style.transition = "none";
+      main.style.height = "auto";
+      const natural = main.offsetHeight;
+      heightFloor = Math.max(heightFloor, Math.min(natural, cap));
+      const target = Math.min(cap, Math.max(natural, heightFloor));
+      main.classList.toggle("is-capped", natural > cap);
+      if (!had || Math.abs(target - shown) < 1) {
+        main.style.height = `${target}px`;
+        main.style.transition = "";
+        return target;
+      }
+      main.style.height = `${shown}px`;
+      void main.offsetHeight;
+      main.style.transition = "";
+      main.classList.add("is-sizing");
+      main.style.height = `${target}px`;
+      clearTimeout(sizingTimer);
+      sizingTimer = window.setTimeout(() => main.classList.remove("is-sizing"), 220);
+      return target;
+    }
+    __name(fitHeight, "fitHeight");
     function position() {
       if (!pop) return;
       if (anchorEl && anchorEl.isConnected) anchor = anchorEl.getBoundingClientRect();
@@ -7327,8 +7422,7 @@ remaining incomplete unfinished morning afternoon evening
       main.style.width = `${Math.round(mainW)}px`;
       pop.style.setProperty("--qb-main-w", `${Math.round(mainW)}px`);
       pop.style.setProperty("--qb-drawer-w", `${Math.round(drawerW)}px`);
-      main.style.maxHeight = "";
-      const w = pop.offsetWidth, ph = pop.offsetHeight;
+      const w = pop.offsetWidth, ph = fitHeight(main);
       const left = anchor ? anchor.left : (vw - w) / 2;
       pop.style.left = `${Math.round(Math.max(VIEWPORT_MARGIN, Math.min(left, vw - w - VIEWPORT_MARGIN)))}px`;
       let top;
@@ -7341,10 +7435,7 @@ remaining incomplete unfinished morning afternoon evening
         if (side === "above" && ph > above && below > above) side = "below";
         top = side === "below" ? anchor.bottom + 8 : anchor.top - 8 - ph;
       }
-      if (ph > vh - 2 * VIEWPORT_MARGIN) {
-        main.style.maxHeight = `${vh - 2 * VIEWPORT_MARGIN}px`;
-        top = VIEWPORT_MARGIN;
-      }
+      if (ph >= vh - 2 * VIEWPORT_MARGIN) top = VIEWPORT_MARGIN;
       pop.style.top = `${Math.round(Math.max(VIEWPORT_MARGIN, Math.min(top, vh - Math.min(ph, vh - 2 * VIEWPORT_MARGIN) - VIEWPORT_MARGIN)))}px`;
     }
     __name(position, "position");
@@ -7391,6 +7482,7 @@ remaining incomplete unfinished morning afternoon evening
     async function open(opts = {}) {
       close(true);
       if (!layer.isConnected) document.body.appendChild(layer);
+      heightFloor = 0;
       anchorEl = opts.anchor instanceof Element ? opts.anchor : null;
       anchor = anchorEl ? anchorEl.getBoundingClientRect() : (
         /** @type {DOMRect | null} */
@@ -7553,6 +7645,7 @@ remaining incomplete unfinished morning afternoon evening
       syncSide();
       const ro = new ResizeObserver(() => position());
       ro.observe(popEl);
+      for (const child of main.querySelectorAll(".qb3-head, .qb3-body > *")) ro.observe(child);
       const onResize = /* @__PURE__ */ __name(() => {
         position();
         syncSide();
@@ -7686,7 +7779,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.3";
+  var PLUGIN_VERSION = "1.3.4";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
@@ -7724,6 +7817,13 @@ remaining incomplete unfinished morning afternoon evening
     _data = null;
     /** The field the builder will write back into. @type {import('./targets.js').TextTarget | null} */
     _target = null;
+    /**
+     * Where that field's query is saved, when it's a query block in a page: its
+     * input only exists while the block is being edited, and focusing the builder
+     * ends that edit — so Use writes the block's `filter_expr` through the SDK.
+     * @type {{ recordGuid: string, guids: Set<string> } | null}
+     */
+    _targetBlock = null;
     /** @type {HTMLElement | null} */
     _pill = null;
     /** @type {import('./targets.js').TextTarget | null} */
@@ -7965,6 +8065,7 @@ remaining incomplete unfinished morning afternoon evening
       if (!this._builder || this._disabled) return;
       this._hidePill();
       this._target = el2;
+      this._targetBlock = el2 ? this._blockOf(el2) : null;
       const query = el2 ? readField(el2).trim() : this._recall();
       const box = el2 ? el2.closest(".query-input") || el2 : null;
       void this._builder.open({ query, anchor: box, canApply: !!el2 });
@@ -7973,14 +8074,63 @@ remaining incomplete unfinished morning afternoon evening
     _apply(q) {
       this._remember(q);
       const t = this._target;
+      const block = this._targetBlock;
       this._target = null;
+      this._targetBlock = null;
       if (!t) return;
+      if (block) {
+        void this._applyToBlock(block, q, t);
+        return;
+      }
       if (writeField(t, q)) return;
+      this._copyFallback(q);
+    }
+    /** @param {string} q */
+    _copyFallback(q) {
       try {
         void navigator.clipboard.writeText(q);
       } catch {
       }
       this._toast("The field closed before the query could be applied \u2014 copied it instead.");
+    }
+    /**
+     * If `el` is a query block's input, remember how to find that block again.
+     * The block's line GUID is one of the `data-guid`s above the input; the page is
+     * the active panel's record (the field was just focused there).
+     * @param {Element} el
+     */
+    _blockOf(el2) {
+      const guids = /* @__PURE__ */ new Set();
+      for (let p = el2.parentElement; p; p = p.parentElement) {
+        const g = p.getAttribute("data-guid");
+        if (g) guids.add(g);
+      }
+      let recordGuid = "";
+      try {
+        recordGuid = String(this.ui.getActivePanel()?.getActiveRecord()?.guid || "");
+      } catch {
+      }
+      if (!recordGuid || !guids.size) return null;
+      return { recordGuid, guids };
+    }
+    /**
+     * Save the query on the block itself — only a query block whose own GUID sits
+     * above the input, so a Search or Upcoming field can never write into some
+     * other block on the page. Otherwise the live input (if it survived), then
+     * the clipboard.
+     * @param {{ recordGuid: string, guids: Set<string> }} block
+     * @param {string} q @param {import('./targets.js').TextTarget} t
+     */
+    async _applyToBlock(block, q, t) {
+      try {
+        const rec = this.data.getRecord(block.recordGuid);
+        const lines = rec ? (await rec.getLineItems(false)).filter((l) => l.type === "query") : [];
+        const line = lines.find((l) => block.guids.has(String(l.guid)));
+        if (line && await line.setMetaProperty("filter_expr", JSON.stringify(q))) return;
+      } catch {
+      }
+      if (writeField(t, q)) return;
+      this._copyFallback(q);
     }
     /* ── Last query (UI-only, device-local) ────────────────────────────── */
     _recall() {
