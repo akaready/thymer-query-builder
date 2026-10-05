@@ -41,6 +41,14 @@ Type what you want in plain English:
 
 Each word lights up in the colour of the filter it became. Typos get corrected, and your own collection, field, tag and people names are understood. Anything left over becomes a text search.
 
+**Did you mean?** Some sentences can mean more than one thing. In a workspace with a Tasks collection, *tasks for active projects* could mean:
+
+- task lines written inside active projects,
+- records in your Tasks collection whose **Project** is an active project, or
+- the active projects themselves.
+
+The builder lists each reading with its match count, best first, and you click the one you meant. For the "linked" reading, it looks up the matching projects and writes the query for you. If its first guess finds nothing but another reading does, it switches on its own.
+
 ### Or build it
 
 Click **+** for every filter, grouped **Tasks · Content · Where · When · People**, with a match count beside each option. Picking a field takes two steps: first the field, then one of its values. Amounts like *edited in the last 7 days* have a stepper, and **Shift** steps by 10.

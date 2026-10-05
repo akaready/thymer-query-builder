@@ -4447,7 +4447,7 @@ someone somebody anyone anybody everyone everybody
       const alts = nameVariants(coll.name).map(esc).join("|");
       rules.push({
         kind: "collection",
-        re: W(`(?:in|from|inside|within)? ?(?:the |my |our )?(?:${alts})(?: collection| database| list)?`),
+        re: W(`(?:in|from|inside|within)? ?(?:the |our )?(?:${alts})(?: collection| database| list)?`),
         make: /* @__PURE__ */ __name(() => [{ kind: "collection", value: coll.name }], "make")
       });
     }
@@ -4461,7 +4461,7 @@ someone somebody anyone anybody everyone everybody
     if (words.length) {
       rules.push({
         kind: "tag",
-        re: W(`(?:the )?(${words.map(esc).join("|")})(?: tags?| stuff| things| items)?`),
+        re: W(`(?:(?:tagged(?: with)?|tags?|labell?ed|with (?:the )?tag) )?(?:the )?(${words.map(esc).join("|")})(?: tags?| stuff| things| items)?`),
         make: /* @__PURE__ */ __name((m) => [{ kind: "tag", value: m[1], ...parents.has(m[1]) ? { prefix: true } : {} }], "make")
       });
     }
@@ -4543,15 +4543,16 @@ remaining incomplete unfinished morning afternoon evening
   function parseNatural(input, context = {}) {
     const ctx = { collections: context.collections || [], users: context.users || [], tags: context.tags || [] };
     const text = String(input ?? "");
+    const done = /* @__PURE__ */ __name((r) => withReadings(finish(r, text), ctx, text), "done");
     const first = matchAll(text, text.toLowerCase(), ctx);
-    if (!first.unknown.length) return finish(first, text);
+    if (!first.unknown.length) return done(first);
     const vocab = vocabulary(ctx);
     const fixes = [];
     for (const u of first.unknown) {
       const to = correct(u.text.toLowerCase(), vocab);
       if (to) fixes.push({ s: u.start, e: u.end, to });
     }
-    if (!fixes.length) return finish(first, text);
+    if (!fixes.length) return done(first);
     let fixed = "";
     const segs = [];
     let at = 0;
@@ -4586,7 +4587,7 @@ remaining incomplete unfinished morning afternoon evening
       u.end = back(u.end, true);
       u.text = text.slice(u.start, u.end);
     }
-    return finish(second, text);
+    return done(second);
   }
   __name(parseNatural, "parseNatural");
   function finish(r, text) {
@@ -4617,6 +4618,89 @@ remaining incomplete unfinished morning afternoon evening
     return { root: buildTree(matches, text.toLowerCase()), matches, unknown: [] };
   }
   __name(finish, "finish");
+  var KEYWORD_NOUNS = (
+    /** @type {Record<string, Cond>} */
+    {
+      task: { kind: "status", value: "task" },
+      tasks: { kind: "status", value: "task" },
+      page: { kind: "type", value: "document" },
+      pages: { kind: "type", value: "document" },
+      document: { kind: "type", value: "document" },
+      documents: { kind: "type", value: "document" }
+    }
+  );
+  var scopeOf = /* @__PURE__ */ __name((c) => c.not ? null : c.kind === "field" ? String(c.coll) : c.kind === "collection" ? String(c.value) : null, "scopeOf");
+  function withReadings(res, ctx, text) {
+    const lower = text.toLowerCase();
+    const ms = res.matches;
+    const scopes = [...new Set(ms.flatMap((mt) => mt.conds.map(scopeOf).filter((x) => x != null)))];
+    const senseOf = /* @__PURE__ */ __name((c) => nameVariants(String(c.value)).map((v) => KEYWORD_NOUNS[v]).find(Boolean), "senseOf");
+    const kw = ms.find((mt) => mt.conds.length === 1 && mt.conds[0].kind === "collection" && !mt.conds[0].not && senseOf(mt.conds[0]));
+    if (scopes.length < 2 && !kw) return res;
+    const build = /* @__PURE__ */ __name((edit) => {
+      const kept = ms.map((mt) => ({ ...mt, conds: edit(mt).map((c) => ({ ...c })) })).filter((mt) => mt.conds.length);
+      return kept.length ? buildTree(kept, lower) : null;
+    }, "build");
+    const out = [];
+    const push = /* @__PURE__ */ __name((id, root, link) => {
+      if (root) out.push({ id, root, ...link ? { link } : {} });
+    }, "push");
+    const taskish = ms.some((mt) => mt !== kw && mt.conds.some((c) => !c.not && (c.kind === "status" && c.value !== "task" || c.kind === "flag")));
+    if (kw) {
+      const sense = (
+        /** @type {Cond} */
+        senseOf(kw.conds[0])
+      );
+      push("keyword", build((mt) => mt !== kw ? mt.conds : sense.value === "task" && taskish ? [] : [sense]));
+    }
+    if (scopes.length === 2) {
+      for (const [from, to] of [[scopes[0], scopes[1]], [scopes[1], scopes[0]]]) {
+        const target = ctx.collections.find((c) => c.name === to);
+        const fromNames = nameVariants(from);
+        const field = target?.fields.find((f) => f.type === "record" && nameVariants(f.label).some((v) => fromNames.includes(v)));
+        if (!field) continue;
+        const where = build((mt) => mt.conds.filter((c) => scopeOf(c) === from && c.kind === "field"));
+        const base = build((mt) => mt.conds.filter((c) => scopeOf(c) !== from && !(c.kind === "collection" && scopeOf(c) === to))) || newGroup("and", []);
+        push(`link:${to}`, base, { coll: to, field: field.label, where });
+      }
+      const ranked = [...scopes].sort((a, b) => Number(ms.some((mt) => mt.conds.some((c) => c.kind === "field" && scopeOf(c) === b))) - Number(ms.some((mt) => mt.conds.some((c) => c.kind === "field" && scopeOf(c) === a))));
+      for (const keep of ranked) push(`only:${keep}`, build((mt) => mt.conds.filter((c) => {
+        const k = scopeOf(c);
+        return k == null || k === keep;
+      })));
+    } else if (kw) {
+      push("collection", res.root);
+      if (!taskish) out.reverse();
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const readings = out.filter((r) => {
+      const k = JSON.stringify([r.root, r.link || null]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (readings.length < 2) return res;
+    const primary = readings.find((r) => !r.link) || readings[0];
+    return { ...res, root: primary.root, readings };
+  }
+  __name(withReadings, "withReadings");
+  function linkedRoot(reading, titles) {
+    const link = reading.link;
+    if (!link) return reading.root;
+    let cond;
+    if (!link.where) cond = { kind: "field", coll: link.coll, field: link.field, op: "!=", value: "" };
+    else {
+      const uniq = [...new Set(titles.map((t) => t.trim()).filter(Boolean))];
+      if (!uniq.length) return null;
+      const conds = uniq.map((t) => (
+        /** @type {Cond} */
+        { kind: "field", coll: link.coll, field: link.field, op: "=", value: t }
+      ));
+      cond = conds.length === 1 ? conds[0] : newGroup("or", conds);
+    }
+    return newGroup("and", [cond, ...reading.root.items]);
+  }
+  __name(linkedRoot, "linkedRoot");
   function matchAll(text, lower, ctx, original) {
     const matches = [];
     const taken = new Uint8Array(lower.length);
@@ -5081,6 +5165,7 @@ remaining incomplete unfinished morning afternoon evening
   var COUNT_CAP = 200;
   var MAX_IN_FLIGHT = 2;
   var CACHE_LIMIT = 600;
+  var LINK_LIMIT = 25;
   var DataService = class {
     static {
       __name(this, "DataService");
@@ -5098,6 +5183,8 @@ remaining incomplete unfinished morning afternoon evening
       this.subs = /* @__PURE__ */ new Set();
       this._notifyQueued = false;
       this.titles = /* @__PURE__ */ new Map();
+      this.linkTitleCache = /* @__PURE__ */ new Map();
+      this.linkTitlePending = /* @__PURE__ */ new Set();
     }
     /** @param {() => void} fn @returns {() => void} */
     on(fn) {
@@ -5236,6 +5323,50 @@ remaining incomplete unfinished morning afternoon evening
       this.errors.clear();
       this.queue = [];
       this.pending.clear();
+      this.linkTitleCache.clear();
+    }
+    /* ── link lookups ────────────────────────────────────────────────── */
+    /**
+     * Titles of the pages a query finds — what a record-link field matches on,
+     * so "Tasks whose Project is an active project" can be spelled out as an OR
+     * of project titles. Cached like counts: null while fetching, then a repaint.
+     * The Title property is preferred over getName(), which other plugins may
+     * decorate ("Website Redesign · Active") and which links don't match on.
+     * @param {string} query @returns {string[] | null}
+     */
+    linkTitles(query) {
+      const q = query.trim();
+      if (this.linkTitleCache.has(q)) return (
+        /** @type {string[]} */
+        this.linkTitleCache.get(q)
+      );
+      if (!this.linkTitlePending.has(q)) {
+        this.linkTitlePending.add(q);
+        void (async () => {
+          let titles = [];
+          try {
+            const res = await this.plugin.data.searchByQuery(q, LINK_LIMIT);
+            const recs = /* @__PURE__ */ new Map();
+            for (const rec of res?.records || []) recs.set(String(rec.guid), rec);
+            for (const line of res?.lines || []) {
+              const rec = line.record || line.getRecord?.();
+              if (rec && !recs.has(String(rec.guid))) recs.set(String(rec.guid), rec);
+            }
+            titles = [...recs.values()].map((rec) => {
+              try {
+                return String(rec.text?.("title") || rec.getName?.() || "");
+              } catch {
+                return String(rec.getName?.() || "");
+              }
+            }).filter(Boolean);
+          } catch {
+          }
+          this.linkTitleCache.set(q, titles);
+          this.linkTitlePending.delete(q);
+          this._notify();
+        })();
+      }
+      return null;
     }
     /* ── matches ─────────────────────────────────────────────────────── */
     /**
@@ -5515,6 +5646,17 @@ remaining incomplete unfinished morning afternoon evening
 .plg-qb-ui .sug:hover { color: var(--k-fg); border-color: color-mix(in srgb, var(--k-fg) 50%, transparent); border-style: solid; background: color-mix(in srgb, var(--k-bg) 35%, transparent); }
 .plg-qb-ui .sug-icon { font-size: 12px; }
 .plg-qb-ui .sug-n { font-size: 10.5px; font-variant-numeric: tabular-nums; padding: 1px 5px; border-radius: 5px; background: var(--inset); color: var(--text-muted); }
+.plg-qb-ui .readings { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 6px; margin-top: -2px; border-radius: 9px; background: var(--inset); }
+.plg-qb-ui .readings:empty { display: none; }
+.plg-qb-ui .readings-label { font-size: 10.5px; letter-spacing: .02em; color: var(--text-muted); padding: 0 6px 3px; }
+.plg-qb-ui .reading { all: unset; cursor: pointer; display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12px; color: var(--text-muted); }
+.plg-qb-ui .reading:hover { color: var(--text-default); background: color-mix(in srgb, var(--text-default) 6%, transparent); }
+.plg-qb-ui .reading.is-on { color: var(--text-default); background: color-mix(in srgb, var(--text-default) 9%, transparent); }
+.plg-qb-ui .reading.is-empty { opacity: .55; }
+.plg-qb-ui .reading-dot { font-size: 12px; flex: none; }
+.plg-qb-ui .reading.is-on .reading-dot { color: var(--tps-accent, var(--logo-color, #04d1ab)); }
+.plg-qb-ui .reading-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plg-qb-ui .reading:focus-visible { outline: 2px solid var(--logo-color, #04d1ab); outline-offset: -2px; }
 .plg-qb-ui .qb3.is-linking .chip:not(.is-lit), .plg-qb-ui .qb3.is-linking .seg:not(.is-lit) { opacity: .4; }
 .plg-qb-ui .qb3.is-linking mark:not(.is-lit) { background: transparent; }
 .plg-qb-ui .seg, .plg-qb-ui .chip, .plg-qb-ui mark { transition: opacity .12s, background .12s; }
@@ -6527,6 +6669,11 @@ remaining incomplete unfinished morning afternoon evening
         codeDraft: null,
         /** @type {Set<string>} */
         prevKeys: /* @__PURE__ */ new Set(),
+        /** Every fair reading of an ambiguous sentence (nl.js), or none. @type {import('./nl.js').Reading[]} */
+        readings: [],
+        /** The reading on show; `readingPicked` once the user chose it themselves. */
+        reading: "",
+        readingPicked: false,
         /** @param {() => void} fn */
         on(fn) {
           subs.add(fn);
@@ -6549,6 +6696,25 @@ remaining incomplete unfinished morning afternoon evening
           m.unknown = r.unknown;
           m.source = "words";
           m.codeDraft = null;
+          const prev = m.reading;
+          m.readings = r.readings || [];
+          const keep = m.readingPicked ? m.readings.find((x) => x.id === prev) : null;
+          const fallback = m.readings.find((x) => !x.link);
+          m.reading = keep ? keep.id : fallback ? fallback.id : "";
+          if (!keep) m.readingPicked = false;
+          const root = keep ? readingRoot(keep) : null;
+          if (root) m.root = root;
+          m.emit();
+        },
+        /** Show one reading of the sentence. @param {string} id @param {boolean} [byUser] */
+        pickReading(id, byUser = true) {
+          const r = m.readings.find((x) => x.id === id);
+          const root = r && readingRoot(r);
+          if (!root) return;
+          m.root = clone(root);
+          m.reading = id;
+          m.readingPicked = m.readingPicked || byUser;
+          m.codeDraft = null;
           m.emit();
         },
         /** @param {string} q */
@@ -6561,7 +6727,7 @@ remaining incomplete unfinished morning afternoon evening
           m.emit();
         },
         snapshot() {
-          return { text: m.text, root: clone(m.root), source: m.source, codeDraft: m.codeDraft, matched: m.matched, unknown: m.unknown };
+          return { text: m.text, root: clone(m.root), source: m.source, codeDraft: m.codeDraft, matched: m.matched, unknown: m.unknown, readings: m.readings, reading: m.reading, readingPicked: m.readingPicked };
         },
         /** @param {any} snap */
         restore(snap) {
@@ -6595,6 +6761,22 @@ remaining incomplete unfinished morning afternoon evening
       return m;
     }
     __name(createModel, "createModel");
+    function readingRoot(r) {
+      if (!r.link) return r.root;
+      if (!r.link.where) return linkedRoot(r, []);
+      const titles = data.linkTitles(toQuery(r.link.where));
+      return titles ? linkedRoot(r, titles) : null;
+    }
+    __name(readingRoot, "readingRoot");
+    function readingLabel(r) {
+      if (!r.link) return readable(r.root);
+      const { coll, field, where } = r.link;
+      const extra = r.root.items.length ? ` \xB7 ${readable(r.root).replace(/\.$/, "")}` : "";
+      if (!where) return `${coll} with a ${field} set${extra}.`;
+      const target = readable(where).replace(/^everything in /i, "").replace(/^in /, "").replace(/\.$/, "");
+      return `${coll} linked to ${target}${extra}.`;
+    }
+    __name(readingLabel, "readingLabel");
     function resolveTitles(root) {
       for (const c of flatConds(root)) {
         if (c.kind === "meta" && (c.key === "linkto" || c.key === "backref") && c.value && !/^current/.test(String(c.value)) && !c.title) {
@@ -6868,6 +7050,50 @@ remaining incomplete unfinished morning afternoon evening
       return row;
     }
     __name(chipsRow, "chipsRow");
+    function readingsRow(m) {
+      const row = h2("div", { class: "readings" });
+      const paint = /* @__PURE__ */ __name(() => {
+        if (m.source !== "words" || m.readings.length < 2) {
+          row.replaceChildren();
+          return;
+        }
+        const rows = m.readings.map((r, i) => {
+          const root = readingRoot(r);
+          const q = root ? toQuery(root) : "";
+          const n = root ? q ? data.count(q) : null : r.link?.where && data.linkTitles(toQuery(r.link.where)) ? 0 : null;
+          return { r, i, n };
+        }).filter((x) => x.n !== -1);
+        const rank = /* @__PURE__ */ __name((n) => n == null ? 1 : n > 0 ? 0 : 2, "rank");
+        rows.sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i);
+        const cur = rows.find((x) => x.r.id === m.reading);
+        if (!m.readingPicked && cur && cur.n === 0) {
+          const best = rows.find((x) => x.n != null && x.n > 0);
+          if (best) {
+            m.pickReading(best.r.id, false);
+            return;
+          }
+        }
+        row.replaceChildren(
+          h2("span", { class: "readings-label" }, "Did you mean"),
+          ...rows.slice(0, 4).map(({ r, n }) => h2(
+            "button",
+            {
+              class: `reading${r.id === m.reading ? " is-on" : ""}${n === 0 ? " is-empty" : ""}`,
+              title: r.id === m.reading ? "Showing this" : "Use this reading",
+              onClick: /* @__PURE__ */ __name(() => m.pickReading(r.id), "onClick")
+            },
+            icon(r.id === m.reading ? "ti-circle-dot" : "ti-circle", "reading-dot"),
+            h2("span", { class: "reading-text" }, readingLabel(r)),
+            h2("span", { class: "sug-n" }, formatCount(n))
+          ))
+        );
+      }, "paint");
+      m.on(paint);
+      teardown.push(data.on(paint));
+      paint();
+      return row;
+    }
+    __name(readingsRow, "readingsRow");
     function suggestions(m) {
       const row = h2("div", { class: "suggest" });
       const paint = /* @__PURE__ */ __name(() => {
@@ -7125,7 +7351,7 @@ remaining incomplete unfinished morning afternoon evening
           sideBtn,
           h2("button", { class: "icon-btn", title: "Close (Esc)", onClick: /* @__PURE__ */ __name(() => close(), "onClick") }, icon("ti-x"))
         ),
-        h2("div", { class: "qb3-body qb3-body--dock" }, words.el, chipsRow(m), suggestions(m), dock.el)
+        h2("div", { class: "qb3-body qb3-body--dock" }, words.el, readingsRow(m), chipsRow(m), suggestions(m), dock.el)
       );
       const undoBtn = h2("button", { class: "undo-btn" }, "Undo");
       const undoBar = h2("div", { class: "undo-bar", role: "status" }, icon("ti-replace", "undo-icon"), h2("span", null, "Example loaded"), undoBtn, h2("kbd", null, IS_MAC ? "\u2318Z" : "Ctrl Z"));
@@ -7314,7 +7540,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.1.5";
+  var PLUGIN_VERSION = "1.2.0";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
