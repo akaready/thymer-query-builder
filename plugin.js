@@ -5546,6 +5546,9 @@ remaining incomplete unfinished morning afternoon evening
 .plg-qb-ui .step { border-radius: 12px; border: 1px solid var(--line); transition: background .15s; }
 .plg-qb-ui .step.is-active { background: color-mix(in srgb, var(--inset) 55%, transparent); border-color: color-mix(in srgb, var(--logo-color) 40%, transparent); }
 .plg-qb-ui .icon-btn.is-on { color: var(--logo-color); }
+.plg-qb-ui .side-glyph { position: relative; width: 15px; height: 13px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 3px; }
+.plg-qb-ui .side-glyph::after { content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 4px; border-left: 1.5px solid currentColor; background: transparent; transition: background .2s; }
+.plg-qb-ui .is-drawer-open .side-glyph::after { background: currentColor; }
 .plg-qb-ui .of { position: relative; display: grid; flex: 1; min-width: 0; }
 .plg-qb-ui .of-input, .plg-qb-ui .of-hl { grid-area: 1 / 1; margin: 0; padding: 0; border: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .plg-qb-ui .of-input { resize: none; outline: none; background: transparent; color: var(--text-default); caret-color: var(--logo-color); overflow: hidden; position: relative; z-index: 1; }
@@ -5599,9 +5602,10 @@ remaining incomplete unfinished morning afternoon evening
 	position: relative; z-index: 1; width: 316px; margin: 16px 0 16px -18px; flex: none;
 	background: var(--panel-bg-color); border: 1px solid var(--line); border-left: 0; border-radius: 0 12px 12px 0;
 	box-shadow: inset 14px 0 18px -14px rgba(0,0,0,.55), 0 20px 40px -20px rgba(0,0,0,.5);
-	transition: width .28s cubic-bezier(.2,.8,.2,1), opacity .2s, margin .28s; overflow: hidden;
+	transition: width .42s cubic-bezier(.22,1,.36,1), opacity .3s ease-out .04s, margin .42s cubic-bezier(.22,1,.36,1); overflow: hidden;
 }
 .plg-qb-ui .qb3.is-closed .drawer { width: 0; opacity: 0; border-width: 0; }
+@media (prefers-reduced-motion: reduce) { .plg-qb-ui .drawer { transition: none; } }
 .plg-qb-ui .drawer-inner { position: absolute; inset: 0 0 0 18px; width: 298px; display: flex; flex-direction: column; }
 .plg-qb-ui .drawer-tabs { display: flex; gap: 2px; padding: 12px 12px 8px 10px; }
 .plg-qb-ui .dtab { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px; font-size: 12.5px; color: var(--text-muted); }
@@ -7282,6 +7286,7 @@ remaining incomplete unfinished morning afternoon evening
     __name(guideView, "guideView");
     let anchor = null;
     let anchorEl = null;
+    let drawerReady = false;
     let mainPref = (
       /** @type {number | null} */
       null
@@ -7315,7 +7320,7 @@ remaining incomplete unfinished morning afternoon evening
         fits = mainW + drawerW - DRAWER_TUCK <= room;
         if (!fits) mainW = Math.min(wantMain, room);
       }
-      pop.classList.toggle("is-closed", !wantDrawer || !fits);
+      pop.classList.toggle("is-closed", !wantDrawer || !fits || !drawerReady);
       pop.classList.toggle("is-cramped", !fits);
       main.style.width = `${Math.round(mainW)}px`;
       pop.style.setProperty("--qb-main-w", `${Math.round(mainW)}px`);
@@ -7384,6 +7389,7 @@ remaining incomplete unfinished morning afternoon evening
     async function open(opts = {}) {
       close(true);
       if (!layer.isConnected) document.body.appendChild(layer);
+      drawerReady = false;
       anchorEl = opts.anchor instanceof Element ? opts.anchor : null;
       anchor = anchorEl ? anchorEl.getBoundingClientRect() : (
         /** @type {DOMRect | null} */
@@ -7418,7 +7424,8 @@ remaining incomplete unfinished morning afternoon evening
         const cramped = !!pop?.classList.contains("is-cramped");
         sideBtn.title = cramped ? "Sidebar \u2014 widen the window to show it" : "Sidebar";
         sideBtn.classList.toggle("is-on", !closed && !cramped);
-        sideBtn.replaceChildren(icon(closed ? "ti-layout-sidebar-right-expand" : "ti-layout-sidebar-right-collapse"));
+        if (!sideBtn.firstChild) sideBtn.appendChild(h2("span", { class: "side-glyph", "aria-hidden": "true" }));
+        sideBtn.classList.toggle("is-drawer-open", !closed && !cramped);
       }, "syncSide");
       const use = /* @__PURE__ */ __name(() => {
         const q = m.query().trim();
@@ -7543,6 +7550,18 @@ remaining incomplete unfinished morning afternoon evening
       } else m.emit();
       position();
       syncSide();
+      const reveal = /* @__PURE__ */ __name(() => {
+        if (drawerReady || pop !== popEl) return;
+        drawerReady = true;
+        position();
+      }, "reveal");
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) reveal();
+      else {
+        main.addEventListener("animationend", (e) => {
+          if (e.target === main) reveal();
+        }, { once: true });
+        setTimeout(reveal, 320);
+      }
       const ro = new ResizeObserver(() => position());
       ro.observe(popEl);
       const onResize = /* @__PURE__ */ __name(() => {
@@ -7678,7 +7697,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.1";
+  var PLUGIN_VERSION = "1.3.2";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
