@@ -3724,7 +3724,11 @@ ${report}
     { value: "billing", label: "Billable", hint: "Tasks flagged billable." }
   ];
   var ITEM_TYPES = [
-    { value: "document", label: "Pages", hint: "Whole pages / records." },
+    // `@page`, `@document` and `@record` are one keyword in Thymer (verified in a live
+    // workspace: identical result sets). `page` is the name Thymer settled on; the
+    // others are accepted by the parser and listed under it, but never written.
+    // (Not to be confused with the `"type":"document"` field on records Thymer returns.)
+    { value: "page", label: "Pages", hint: "Whole pages, journal days included, with no line items.", aliases: ["document", "record"] },
     { value: "heading", label: "Headings", hint: "Heading lines." },
     { value: "text", label: "Text blocks", hint: "Plain text lines." },
     { value: "list", label: "List items", hint: "Bulleted and numbered list items." },
@@ -3762,8 +3766,8 @@ ${report}
   ];
   var ALIASES = {
     wip: ["flag", "inprogress"],
-    page: ["type", "document"],
-    record: ["type", "document"],
+    document: ["type", "page"],
+    record: ["type", "page"],
     tod: ["date", "today"],
     tom: ["date", "tomorrow"],
     yes: ["date", "yesterday"]
@@ -3800,12 +3804,29 @@ ${report}
     return quote(s);
   }
   __name(compareValue, "compareValue");
+  var PAGE_WORDS = (
+    /** @type {Record<string, string>} */
+    { page: "pages", document: "documents", record: "records" }
+  );
+  function typeWord(c) {
+    if (c.kind !== "type" || c.value !== "page") return void 0;
+    return PAGE_WORDS[c.as && PAGE_WORDS[c.as] ? c.as : "page"];
+  }
+  __name(typeWord, "typeWord");
+  function condKey(c) {
+    const { as: _as, ...rest } = c;
+    return serializeCond(rest);
+  }
+  __name(condKey, "condKey");
   function serializeCond(c) {
     const v = String(c.value ?? "").trim();
     switch (c.kind) {
+      case "type": {
+        const spelled = c.as && ITEM_TYPES.find((o) => o.value === v)?.aliases?.includes(c.as) ? c.as : v;
+        return v ? "@" + spelled : "";
+      }
       case "status":
       case "flag":
-      case "type":
         return v ? "@" + v : "";
       case "date":
       case "person":
@@ -4077,7 +4098,7 @@ ${report}
   function atLeaf(word, colls, users) {
     const lower = word.toLowerCase();
     const alias = ALIASES[lower];
-    if (alias) return { kind: alias[0], value: alias[1] };
+    if (alias) return alias[0] === "type" ? { kind: "type", value: alias[1], as: lower } : { kind: alias[0], value: alias[1] };
     if (has(STATUS, lower)) return { kind: "status", value: lower };
     if (has(FLAGS, lower)) return { kind: "flag", value: lower };
     if (has(ITEM_TYPES, lower)) return { kind: "type", value: lower };
@@ -4155,7 +4176,10 @@ ${report}
       { token: '@Project.owner = ""', hint: 'Field is empty. Use != "" for "is set".' },
       { token: "@Project.points >= 3", hint: "Numbers and dates support < <= > >=." }
     ] },
-    { title: "Item types", rows: ITEM_TYPES.map((o) => ({ token: "@" + o.value, hint: o.hint })) }
+    { title: "Item types", rows: ITEM_TYPES.map((o) => ({
+      token: "@" + o.value,
+      hint: o.aliases?.length ? `${o.hint} ${o.aliases.map((a) => "@" + a).join(" and ")} work too.` : o.hint
+    })) }
   ];
 
   // nl.js
@@ -4322,7 +4346,7 @@ someone somebody anyone anybody everyone everybody
     // Tasks with no deadline at all.
     { kind: "status", re: W(`(?:with ?out|with no|no|lacking|missing) (?:a |any )?(?:due dates?|deadlines?)|undated|no deadline`), make: /* @__PURE__ */ __name(() => [...status("task"), ...status("due", true)], "make") },
     // "my notes" — pages I wrote, not pages that mention me.
-    { kind: "meta", re: W(`my (?:own )?(?:pages?|notes?|docs?|documents?|writing)`), make: /* @__PURE__ */ __name(() => [...type("document"), { kind: "meta", key: "created_by", op: "=", value: "@me" }], "make") },
+    { kind: "meta", re: W(`my (?:own )?(?:pages?|notes?|docs?|documents?|writing)`), make: /* @__PURE__ */ __name(() => [...type("page"), { kind: "meta", key: "created_by", op: "=", value: "@me" }], "make") },
     // Staleness and recency.
     { kind: "meta", re: W(`not (?:been )?(?:edited|updated|touched|changed|modified|looked at) (?:in|for|since) (?:over )?((?:the )?(?:last|past) )?(a|an|one|\\d+) (day|week|month|year)s?`), make: /* @__PURE__ */ __name((m) => [{ kind: "meta", key: "modified_at", op: "<", value: (
       /** @type {string} */
@@ -4385,7 +4409,7 @@ someone somebody anyone anybody everyone everybody
     // Tasks themselves (dropped later if a more specific task filter exists).
     { kind: "status", re: W(`tasks?|to-dos?|todos|action items?|checkboxes|checklist items?`), make: /* @__PURE__ */ __name(() => status("task"), "make") },
     // Item types.
-    { kind: "type", re: W(`pages?|notes?|documents?|docs?|records?|articles?`), make: /* @__PURE__ */ __name(() => type("document"), "make") },
+    { kind: "type", re: W(`pages?|notes?|documents?|docs?|records?|articles?`), make: /* @__PURE__ */ __name(() => type("page"), "make") },
     { kind: "type", re: W(`headings?|headers?|sections?`), make: /* @__PURE__ */ __name(() => type("heading"), "make") },
     { kind: "type", re: W(`images?|pictures?|photos?|screenshots?|pics?`), make: /* @__PURE__ */ __name(() => type("image"), "make") },
     { kind: "type", re: W(`files?|attachments?|pdfs?|uploads?`), make: /* @__PURE__ */ __name(() => type("file"), "make") },
@@ -4641,10 +4665,10 @@ remaining incomplete unfinished morning afternoon evening
     {
       task: { kind: "status", value: "task" },
       tasks: { kind: "status", value: "task" },
-      page: { kind: "type", value: "document" },
-      pages: { kind: "type", value: "document" },
-      document: { kind: "type", value: "document" },
-      documents: { kind: "type", value: "document" }
+      page: { kind: "type", value: "page" },
+      pages: { kind: "type", value: "page" },
+      document: { kind: "type", value: "page" },
+      documents: { kind: "type", value: "page" }
     }
   );
   var scopeOf = /* @__PURE__ */ __name((c) => c.not ? null : c.kind === "field" ? String(c.coll) : c.kind === "collection" ? String(c.value) : null, "scopeOf");
@@ -4852,7 +4876,7 @@ remaining incomplete unfinished morning afternoon evening
     collection: { hue: 125, icon: "ti-folder", noun: "Collection" },
     field: { hue: 150, icon: "ti-adjustments-horizontal", noun: "Field" },
     tag: { hue: 175, icon: "ti-hash", noun: "Tag" },
-    type: { hue: 200, icon: "ti-file", noun: "Kind" },
+    type: { hue: 200, icon: "ti-file", noun: "Type" },
     date: { hue: 230, icon: "ti-calendar", noun: "Date" },
     detail: { hue: 260, icon: "ti-clock", noun: "Detail" },
     person: { hue: 300, icon: "ti-user", noun: "Person" },
@@ -4891,7 +4915,7 @@ remaining incomplete unfinished morning afternoon evening
     unassigned: "assigned to nobody",
     scheduled: "planned on a journal"
   };
-  var TYPE_CHIP = { document: "pages", heading: "headings", text: "text lines", list: "list items", quote: "quotes", image: "images", file: "files" };
+  var TYPE_CHIP = { page: "pages", heading: "headings", text: "text lines", list: "list items", quote: "quotes", image: "images", file: "files" };
   var OP_WORDS = { "=": "is", "!=": "is not", "<": "before", "<=": "on or before", ">": "after", ">=": "on or after" };
   var NUM_OP_WORDS = { "=": "is", "!=": "is not", "<": "under", "<=": "at most", ">": "over", ">=": "at least" };
   var human = /* @__PURE__ */ __name((v) => String(v ?? "").replace(/^@/, "").replace(/^"|"$/g, ""), "human");
@@ -4924,7 +4948,7 @@ remaining incomplete unfinished morning afternoon evening
       case "flag":
         return neg + (labelOf(FLAGS, v)?.toLowerCase() || v);
       case "type":
-        return neg + (TYPE_CHIP[v] || v);
+        return neg + (typeWord(c) || TYPE_CHIP[v] || v);
       case "date":
         return `${neg}dated ${dateWords(v) || "\u2026"}`;
       case "person":
@@ -5017,7 +5041,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(highlightQuery, "highlightQuery");
   var STATUS_ADJ = { todo: "open", done: "finished", overdue: "overdue", unassigned: "unassigned", assigned: "assigned", scheduled: "planned" };
   var FLAG_ADJ = { important: "important", starred: "starred", inprogress: "in-progress", waiting: "waiting", discuss: "to-discuss", alert: "alert", billing: "billable" };
-  var TYPE_NOUN = { document: "pages", heading: "headings", text: "text lines", list: "list items", quote: "quotes", image: "images", file: "files" };
+  var TYPE_NOUN = { page: "pages", heading: "headings", text: "text lines", list: "list items", quote: "quotes", image: "images", file: "files" };
   var listJoin = /* @__PURE__ */ __name((parts, word = "and") => parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} ${word} ${parts[parts.length - 1]}`, "listJoin");
   function readable(root) {
     const items = root.kind === "group" && root.join === "and" && !root.not ? root.items : [root];
@@ -5068,7 +5092,7 @@ remaining incomplete unfinished morning afternoon evening
           continue;
         }
         if (c.kind === "type" && TYPE_NOUN[String(c.value)] && !noun) {
-          noun = TYPE_NOUN[String(c.value)];
+          noun = typeWord(c) || TYPE_NOUN[String(c.value)];
           continue;
         }
       }
@@ -5107,7 +5131,7 @@ remaining incomplete unfinished morning afternoon evening
         { kind: "date", value: "today" },
         flag2("important"),
         ...topTag ? [{ kind: "tag", value: topTag }] : [],
-        { kind: "type", value: "document" },
+        { kind: "type", value: "page" },
         ...collections[0] ? [{ kind: "collection", value: collections[0].name }] : [],
         { kind: "meta", key: "modified_at", op: ">=", value: "yesterday" }
       );
@@ -5137,7 +5161,7 @@ remaining incomplete unfinished morning afternoon evening
       if (!settled) out.push(status2("done", true));
       if (!hasAny("meta") || !conds.some((c) => c.kind === "status" && c.value === "scheduled")) out.push(status2("scheduled", true));
     }
-    if (has2("type", "document") || has2("type")) {
+    if (has2("type", "page") || has2("type")) {
       out.push(
         { kind: "meta", key: "modified_at", op: ">=", value: "yesterday" },
         { kind: "meta", key: "created_by", op: "=", value: "@me" },
@@ -5151,7 +5175,7 @@ remaining incomplete unfinished morning afternoon evening
       if (!hasAny("person")) out.push({ kind: "person", value: "me" });
     }
     if (hasAny("text") || hasAny("tag")) {
-      if (!hasAny("type")) out.push({ kind: "type", value: "document" });
+      if (!hasAny("type")) out.push({ kind: "type", value: "page" });
       if (!hasAny("collection")) out.push(...collections.slice(0, 2).map((c) => ({ kind: "collection", value: c.name })));
       if (!taskish) out.push(status2("todo"));
     }
@@ -5160,7 +5184,7 @@ remaining incomplete unfinished morning afternoon evening
   }
   __name(suggestNext, "suggestNext");
   function dedupe(list, existing) {
-    const key = /* @__PURE__ */ __name((c) => serializeCond({ ...c, not: false }), "key");
+    const key = /* @__PURE__ */ __name((c) => condKey({ ...c, not: false }), "key");
     const taken = new Set(existing.map(key));
     const opposites = (
       /** @type {Record<string, string>} */
@@ -5433,7 +5457,7 @@ remaining incomplete unfinished morning afternoon evening
       if (!t) return [];
       const out = this.ctx.collections.filter((c) => c.guid && c.name.toLowerCase().includes(t.toLowerCase())).slice(0, 3).map((c) => ({ value: c.guid, title: c.name, where: "Collection", icon: "ti-folder" }));
       try {
-        const res = await this.plugin.data.searchByQuery(`@document ${JSON.stringify(t)}`, 10);
+        const res = await this.plugin.data.searchByQuery(`@page ${JSON.stringify(t)}`, 10);
         for (const rec of res?.records || []) {
           const title = String(rec.getName?.() || "Untitled");
           this.titles.set(String(rec.guid), title);
@@ -5713,6 +5737,7 @@ remaining incomplete unfinished morning afternoon evening
 .plg-qb-ui .opt.is-zero { opacity: .45; }
 .plg-qb-ui .opt-check { color: var(--k-fg); font-size: 13px; }
 .plg-qb-ui .opt-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plg-qb-ui .opt-pills { display: inline-flex; gap: 4px; justify-self: end; }
 .plg-qb-ui .opt-count { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .plg-qb-ui .menu--small { width: 200px; }
 .plg-qb-ui .menu--small .opt { grid-template-columns: 16px 1fr; }
@@ -6032,7 +6057,7 @@ remaining incomplete unfinished morning afternoon evening
     { kind: "collection", title: "Collection", hint: "only inside one collection" },
     { kind: "field", title: "Field", hint: "a collection property", icon: "ti-adjustments-horizontal", color: "field" },
     { kind: "tag", title: "Tag", hint: "#ideas, #project/\u2026" },
-    { kind: "type", title: "Kind", hint: "pages, images, files" },
+    { kind: "type", title: "Type", hint: "pages, images, files" },
     { kind: "date", title: "Date", hint: "today, this week, next monday" },
     { kind: "detail", title: "Details", hint: "due before, edited since, made by", icon: "ti-clock", color: "detail" },
     { kind: "person", title: "Person", hint: "who it mentions" }
@@ -6243,13 +6268,25 @@ remaining incomplete unfinished morning afternoon evening
       obs.observe(layer, { childList: true });
     }
     __name(place, "place");
+    function optionPills(cond, pick) {
+      const names = cond.kind === "type" ? ITEM_TYPES.find((o) => o.value === cond.value)?.aliases : null;
+      if (!names?.length) return h2("code", { class: "pill" }, serializeCond(bare(cond)));
+      return h2("span", { class: "opt-pills" }, [cond.value, ...names].map((name) => h2("code", {
+        class: "pill",
+        onClick: /* @__PURE__ */ __name((e) => {
+          e.stopPropagation();
+          pick(name === cond.value ? void 0 : name);
+        }, "onClick")
+      }, "@" + name)));
+    }
+    __name(optionPills, "optionPills");
     function optionRow(cond, n, on, pick) {
       return h2(
         "button",
-        { class: `opt${on ? " is-on" : ""}${n === 0 ? " is-zero" : ""}${n != null && n < 0 ? " is-bad" : ""}`, vars: kindVars(colorKind(cond)), onClick: pick, title: n != null && n < 0 ? data.error(toQuery(newGroup("and", [bare(cond)]))) || "Thymer can\u2019t read this" : null },
+        { class: `opt${on ? " is-on" : ""}${n === 0 ? " is-zero" : ""}${n != null && n < 0 ? " is-bad" : ""}`, vars: kindVars(colorKind(cond)), onClick: /* @__PURE__ */ __name(() => pick(), "onClick"), title: n != null && n < 0 ? data.error(toQuery(newGroup("and", [bare(cond)]))) || "Thymer can\u2019t read this" : null },
         h2("span", { class: "opt-check" }, on ? icon("ti-check") : null),
         h2("span", { class: "opt-label" }, cond.label || chipLabel({ ...cond, not: false })),
-        h2("code", { class: "pill" }, serializeCond(bare(cond))),
+        optionPills(cond, pick),
         h2("span", { class: "opt-count" }, formatCount(n))
       );
     }
@@ -6312,9 +6349,10 @@ remaining incomplete unfinished morning afternoon evening
       }, "pick");
       const draw = /* @__PURE__ */ __name(() => {
         const opts = getOpts();
-        const ql = q.trim().toLowerCase().replace(/^#/, "");
-        const shown = [...found, ...opts.filter((x) => !ql || String(x.label || x.title || chipLabel(x)).toLowerCase().includes(ql) || String(x.value).toLowerCase().includes(ql) || String(x.where || "").toLowerCase().includes(ql))];
-        const rows = shown.map((x) => x.where ? targetRow(x, o.count(x), o.isOn(x), () => pick(x)) : optionRow(x, o.count(x) ?? null, o.isOn(x), () => pick(x)));
+        const ql = q.trim().toLowerCase().replace(/^[#@]/, "");
+        const namesOf = /* @__PURE__ */ __name((x) => x.kind === "type" ? (ITEM_TYPES.find((t) => t.value === x.value)?.aliases || []).flatMap((n) => [n, n + "s"]) : [], "namesOf");
+        const shown = [...found, ...opts.filter((x) => !ql || String(x.label || x.title || chipLabel(x)).toLowerCase().includes(ql) || String(x.value).toLowerCase().includes(ql) || String(x.where || "").toLowerCase().includes(ql) || namesOf(x).some((n) => n.includes(ql.replace(/^@/, ""))))];
+        const rows = shown.map((x) => x.where ? targetRow(x, o.count(x), o.isOn(x), () => pick(x)) : optionRow(x, o.count(x) ?? null, o.isOn(x), (as) => pick(as ? { ...x, as } : x)));
         const custom = o.custom ? o.custom(q) : customFor(o.kind, q, opts);
         if (custom) {
           const row = optionRow(custom, o.count(custom) ?? null, false, () => pick(custom));
@@ -6478,7 +6516,7 @@ remaining incomplete unfinished morning afternoon evening
         Object.assign(c, bare(o), o.title ? { title: o.title } : {}, not ? { not } : {});
         m.touched();
       }, "swap");
-      const common = { count: /* @__PURE__ */ __name((o) => countAs(m.root, c, o), "count"), isOn: /* @__PURE__ */ __name((o) => serializeCond(bare(o)) === serializeCond({ ...c, not: false }), "isOn"), onPick: swap };
+      const common = { count: /* @__PURE__ */ __name((o) => countAs(m.root, c, o), "count"), isOn: /* @__PURE__ */ __name((o) => condKey(bare(o)) === condKey({ ...c, not: false }), "isOn"), onPick: swap };
       const fieldValuesStep = /* @__PURE__ */ __name((coll, field) => {
         pk = picker({ kind: "field", ...common, opts: fieldValues(coll, field), custom: fieldCustom(coll, field), onEscape: fieldsStep });
         body.replaceChildren(h2("div", { class: "menu-crumb" }, h2("button", { class: "icon-btn", title: "Other fields", onClick: fieldsStep }, icon("ti-arrow-left")), h2("span", null, `${coll} \xB7 `, h2("b", null, field))), ...pk.nodes);
@@ -7202,9 +7240,9 @@ remaining incomplete unfinished morning afternoon evening
         const q = toQuery(m.root);
         const empty = !m.conds().length;
         const now = empty ? Infinity : count(m.root);
-        const seen = new Set(m.conds().map((c) => serializeCond({ ...c, not: false })));
+        const seen = new Set(m.conds().map((c) => condKey({ ...c, not: false })));
         const candidates = [...suggestNext(m.root, { collections: data.ctx.collections, tags: data.ctx.tags })].filter((c) => {
-          const k = serializeCond({ ...c, not: false });
+          const k = condKey({ ...c, not: false });
           if (!k || seen.has(k)) return false;
           seen.add(k);
           return true;
@@ -7230,7 +7268,7 @@ remaining incomplete unfinished morning afternoon evening
       text: [{ kind: "text", value: "meeting notes" }, { kind: "text", value: "release notes", exact: true }],
       link: [{ kind: "meta", key: "linkto", op: "=", value: "currentpage" }, { kind: "meta", key: "link", op: "=", value: "github" }],
       tag: [{ kind: "tag", value: "ideas" }, { kind: "tag", value: "project", prefix: true }],
-      type: [{ kind: "type", value: "document" }, { kind: "type", value: "image" }],
+      type: ITEM_TYPES.map((t) => ({ kind: "type", value: t.value })),
       date: [...["today", "tomorrow", "thisweek", "nextweek"].map((v) => ({ kind: "date", value: v })), { kind: "date", value: "next monday" }, { kind: "date", value: "5 days ago" }],
       detail: [
         { kind: "meta", key: "due", op: "<=", value: "today" },
@@ -7239,6 +7277,7 @@ remaining incomplete unfinished morning afternoon evening
       ],
       person: [{ kind: "person", value: "me" }, { kind: "person", value: "mention" }]
     };
+    const GUIDE_SECTIONS = ADD_GROUPS.flatMap((g) => g.kinds.includes("type") ? [{ label: g.label, kinds: g.kinds.filter((k) => k !== "type") }, { label: "Type", kinds: ["type"] }] : [g]);
     function guideRows(kind) {
       const first = data.ctx.collections[0];
       if (kind === "collection") return first ? [{ kind: "collection", value: first.name }] : [];
@@ -7349,7 +7388,7 @@ remaining incomplete unfinished morning afternoon evening
           { class: "g-sec g-sec--basics" },
           h2("div", { class: "g-combine" }, COMBINE.map((c) => h2("div", { class: "g-comb" }, h2("code", { class: "pill pill--plain" }, c.code), h2("span", { class: "g-say" }, c.say))))
         ),
-        ADD_GROUPS.map((g) => {
+        GUIDE_SECTIONS.map((g) => {
           const rows = g.kinds.flatMap(guideRows);
           return rows.length ? h2("div", { class: "g-sec" }, h2("div", { class: "g-title" }, g.label), rows.map(row)) : null;
         }),
@@ -7799,7 +7838,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.5";
+  var PLUGIN_VERSION = "1.4.0";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
