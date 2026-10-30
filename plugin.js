@@ -3728,6 +3728,7 @@ ${report}
     // workspace: identical result sets). `page` is the name Thymer settled on; the
     // others are accepted by the parser and listed under it, but never written.
     // (Not to be confused with the `"type":"document"` field on records Thymer returns.)
+    // Thymer's own type name is `document`: `@type=page` and `@type=record` match nothing, so never write them.
     { value: "page", label: "Pages", hint: "Whole pages, journal days included, with no line items.", aliases: ["document", "record"] },
     { value: "heading", label: "Headings", hint: "Heading lines." },
     { value: "text", label: "Text blocks", hint: "Plain text lines." },
@@ -3804,6 +3805,11 @@ ${report}
     return quote(s);
   }
   __name(compareValue, "compareValue");
+  function isKeyword(name) {
+    const v = String(name ?? "").trim().toLowerCase();
+    return has(STATUS, v) || has(FLAGS, v) || has(ITEM_TYPES, v) || ITEM_TYPES.some((o) => o.aliases?.includes(v)) || Object.hasOwn(ALIASES, v) || v === "me" || v === "mention" || isDateWord(v);
+  }
+  __name(isKeyword, "isKeyword");
   var PAGE_WORDS = (
     /** @type {Record<string, string>} */
     { page: "pages", document: "documents", record: "records" }
@@ -3828,9 +3834,13 @@ ${report}
       case "status":
       case "flag":
         return v ? "@" + v : "";
+      case "collection": {
+        const name = v.replace(/^@/, "");
+        if (!name) return "";
+        return isKeyword(name) ? `@collection=${quote(name)}` : "@" + atom(name);
+      }
       case "date":
       case "person":
-      case "collection":
         return v ? "@" + atom(v.replace(/^@/, "")) : "";
       case "tag": {
         let t = v.replace(/^#/, "").replace(/\s+/g, "");
@@ -4080,11 +4090,12 @@ ${report}
             const value = val.t === "str" ? val.v : val.t === "word" ? val.v : val.t === "at" ? val.raw : val.t === "tag" ? "#" + val.v : null;
             if (value == null) throw new Error("bad value");
             if (tk.parts.length === 2) return { kind: "field", coll: tk.parts[0], field: tk.parts[1], op: next.v, value };
+            if (tk.parts.length === 1 && tk.parts[0].toLowerCase() === "collection" && next.v === "=") return { kind: "collection", value: colls.get(value.toLowerCase()) || value };
             if (tk.parts.length === 1) return { kind: "meta", key: tk.parts[0].toLowerCase(), op: next.v, value };
             throw new Error("bad key");
           }
           if (tk.parts.length !== 1) return { kind: "raw", value: tk.raw };
-          return atLeaf(tk.parts[0], colls, users);
+          return atLeaf(tk.parts[0], colls, users, tk.raw.startsWith('@"'));
         }
         default:
           throw new Error("unexpected token");
@@ -4095,8 +4106,12 @@ ${report}
     return root;
   }
   __name(parseStrict, "parseStrict");
-  function atLeaf(word, colls, users) {
+  function atLeaf(word, colls, users, quoted = false) {
     const lower = word.toLowerCase();
+    if (quoted && !isDateWord(lower)) {
+      const own = colls.get(lower);
+      if (own) return { kind: "collection", value: own };
+    }
     const alias = ALIASES[lower];
     if (alias) return alias[0] === "type" ? { kind: "type", value: alias[1], as: lower } : { kind: alias[0], value: alias[1] };
     if (has(STATUS, lower)) return { kind: "status", value: lower };
@@ -4306,7 +4321,8 @@ someone somebody anyone anybody everyone everybody
   var W = /* @__PURE__ */ __name((src) => new RegExp(`(?<![\\w#@])(?:${src})(?![\\w])`, "g"), "W");
   var status = /* @__PURE__ */ __name((value, not = false) => [{ kind: "status", value, ...not ? { not: true } : {} }], "status");
   var flag = /* @__PURE__ */ __name((value) => [{ kind: "flag", value }], "flag");
-  var type = /* @__PURE__ */ __name((value) => [{ kind: "type", value }], "type");
+  var type = /* @__PURE__ */ __name((value, as) => [{ kind: "type", value, ...as ? { as } : {} }], "type");
+  var pagesAs = /* @__PURE__ */ __name((phrase) => /\bdocument|\bdocs?\b/i.test(phrase) ? "document" : /\brecord/i.test(phrase) ? "record" : void 0, "pagesAs");
   function person(ctx, name) {
     const n = name.toLowerCase();
     if (n === "me" || n === "i" || n === "myself") return "me";
@@ -4346,7 +4362,7 @@ someone somebody anyone anybody everyone everybody
     // Tasks with no deadline at all.
     { kind: "status", re: W(`(?:with ?out|with no|no|lacking|missing) (?:a |any )?(?:due dates?|deadlines?)|undated|no deadline`), make: /* @__PURE__ */ __name(() => [...status("task"), ...status("due", true)], "make") },
     // "my notes" — pages I wrote, not pages that mention me.
-    { kind: "meta", re: W(`my (?:own )?(?:pages?|notes?|docs?|documents?|writing)`), make: /* @__PURE__ */ __name(() => [...type("page"), { kind: "meta", key: "created_by", op: "=", value: "@me" }], "make") },
+    { kind: "meta", re: W(`my (?:own )?(?:pages?|notes?|docs?|documents?|writing)`), make: /* @__PURE__ */ __name((m) => [...type("page", pagesAs(m[0])), { kind: "meta", key: "created_by", op: "=", value: "@me" }], "make") },
     // Staleness and recency.
     { kind: "meta", re: W(`not (?:been )?(?:edited|updated|touched|changed|modified|looked at) (?:in|for|since) (?:over )?((?:the )?(?:last|past) )?(a|an|one|\\d+) (day|week|month|year)s?`), make: /* @__PURE__ */ __name((m) => [{ kind: "meta", key: "modified_at", op: "<", value: (
       /** @type {string} */
@@ -4409,7 +4425,7 @@ someone somebody anyone anybody everyone everybody
     // Tasks themselves (dropped later if a more specific task filter exists).
     { kind: "status", re: W(`tasks?|to-dos?|todos|action items?|checkboxes|checklist items?`), make: /* @__PURE__ */ __name(() => status("task"), "make") },
     // Item types.
-    { kind: "type", re: W(`pages?|notes?|documents?|docs?|records?|articles?`), make: /* @__PURE__ */ __name(() => type("page"), "make") },
+    { kind: "type", re: W(`pages?|notes?|documents?|docs?|records?|articles?`), make: /* @__PURE__ */ __name((m) => type("page", pagesAs(m[0])), "make") },
     { kind: "type", re: W(`headings?|headers?|sections?`), make: /* @__PURE__ */ __name(() => type("heading"), "make") },
     { kind: "type", re: W(`images?|pictures?|photos?|screenshots?|pics?`), make: /* @__PURE__ */ __name(() => type("image"), "make") },
     { kind: "type", re: W(`files?|attachments?|pdfs?|uploads?`), make: /* @__PURE__ */ __name(() => type("file"), "make") },
@@ -4667,8 +4683,8 @@ remaining incomplete unfinished morning afternoon evening
       tasks: { kind: "status", value: "task" },
       page: { kind: "type", value: "page" },
       pages: { kind: "type", value: "page" },
-      document: { kind: "type", value: "page" },
-      documents: { kind: "type", value: "page" }
+      document: { kind: "type", value: "page", as: "document" },
+      documents: { kind: "type", value: "page", as: "document" }
     }
   );
   var scopeOf = /* @__PURE__ */ __name((c) => c.not ? null : c.kind === "field" ? String(c.coll) : c.kind === "collection" ? String(c.value) : null, "scopeOf");
@@ -4901,6 +4917,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(colorKind, "colorKind");
   function metaColorKind(key) {
     const type2 = META_KEYS.find((m) => m.value === key)?.type;
+    if (key === "collection") return "collection";
     return type2 === "link" || key === "link" ? "link" : "detail";
   }
   __name(metaColorKind, "metaColorKind");
@@ -7838,7 +7855,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.0";
+  var PLUGIN_VERSION = "1.4.2";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
