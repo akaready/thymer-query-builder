@@ -5257,6 +5257,76 @@ remaining incomplete unfinished morning afternoon evening
   }
   __name(dedupe, "dedupe");
 
+  // ../../shared/line-segments.js
+  function segmentDisplayText(seg) {
+    if (!seg) return "";
+    const t = seg.text;
+    if (typeof t === "string") return t;
+    if (t && typeof t === "object") {
+      if (typeof t.title === "string" && t.title) return t.title;
+      if (typeof t.link === "string") return t.link;
+      if (typeof t.text === "string") return t.text;
+    }
+    return "";
+  }
+  __name(segmentDisplayText, "segmentDisplayText");
+  function safeString(fn) {
+    try {
+      const v = fn();
+      return typeof v === "string" ? v : "";
+    } catch {
+      return "";
+    }
+  }
+  __name(safeString, "safeString");
+  function datetimeLabel(value) {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object") return "";
+    if (typeof value.formatted === "string" && value.formatted) return value.formatted;
+    const day = /* @__PURE__ */ __name((d) => {
+      const m = /^(\d{4})(\d{2})(\d{2})$/.exec(String(d || ""));
+      if (!m) return "";
+      const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      if (Number.isNaN(date.getTime())) return "";
+      const opts = (
+        /** @type {Intl.DateTimeFormatOptions} */
+        { month: "short", day: "numeric" }
+      );
+      if (date.getFullYear() !== (/* @__PURE__ */ new Date()).getFullYear()) opts.year = "numeric";
+      return date.toLocaleDateString(void 0, opts);
+    }, "day");
+    const start = day(value.d);
+    const end = value.r && typeof value.r === "object" ? day(value.r.d) : "";
+    return start && end && end !== start ? `${start} \u2013 ${end}` : start;
+  }
+  __name(datetimeLabel, "datetimeLabel");
+  function segmentLabel(seg, resolve = {}) {
+    if (!seg) return "";
+    const t = seg.text;
+    if (seg.type === "ref") {
+      const title = t && typeof t === "object" && typeof t.title === "string" ? t.title : "";
+      if (title) return title;
+      const guid = typeof t === "string" ? t : t && typeof t.guid === "string" ? t.guid : "";
+      const { recordName } = resolve;
+      return guid && recordName ? safeString(() => recordName(guid)) : "";
+    }
+    if (seg.type === "mention") {
+      const guid = typeof t === "string" ? t : t && typeof t.guid === "string" ? t.guid : "";
+      const { userName } = resolve;
+      const name = guid && userName ? safeString(() => userName(guid)) : "";
+      return name ? `@${name}` : "";
+    }
+    if (seg.type === "datetime") return datetimeLabel(t);
+    if (seg.type === "icon") return "";
+    return segmentDisplayText(seg);
+  }
+  __name(segmentLabel, "segmentLabel");
+  function lineLabel(item, resolve = {}) {
+    const segs = item && Array.isArray(item.segments) ? item.segments : [];
+    return segs.map((s) => segmentLabel(s, resolve)).join("").replace(/\s+/g, " ").trim();
+  }
+  __name(lineLabel, "lineLabel");
+
   // data.js
   var COUNT_CAP = 200;
   var MAX_IN_FLIGHT = 2;
@@ -5479,7 +5549,7 @@ remaining incomplete unfinished morning afternoon evening
         for (const line of res.lines || []) {
           const rec = line.record || line.getRecord?.();
           const status3 = line.getTaskStatus?.();
-          const text = (line.segments || []).map((s) => typeof s.text === "string" ? s.text : "").join("").trim();
+          const text = lineLabel(line, this._labelLookups());
           items.push({
             guid: String(line.guid),
             recordGuid: String(rec?.guid || ""),
@@ -5499,6 +5569,27 @@ remaining incomplete unfinished morning afternoon evening
           err?.message || err
         ), total: 0 };
       }
+    }
+    /**
+     * Name lookups for match labels: a line's `ref` segments carry bare record guids and
+     * `mention` segments user guids, which must show as names, never as ids.
+     */
+    _labelLookups() {
+      const data = this.plugin.data;
+      let users = null;
+      return {
+        recordName: /* @__PURE__ */ __name((guid) => {
+          const rec = data.getRecord?.(guid);
+          return rec ? String(rec.getName?.() || "") : "";
+        }, "recordName"),
+        userName: /* @__PURE__ */ __name((guid) => {
+          if (!users) {
+            users = /* @__PURE__ */ new Map();
+            for (const u of data.getActiveUsers?.() || []) users.set(String(u.guid), String(u.getDisplayName?.() || ""));
+          }
+          return users.get(guid) || "";
+        }, "userName")
+      };
     }
     /* ── link targets ────────────────────────────────────────────────── */
     /**
@@ -7892,7 +7983,7 @@ remaining incomplete unfinished morning afternoon evening
   __name(writeField, "writeField");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.3";
+  var PLUGIN_VERSION = "1.4.4";
   var PLUGIN_NAME = "Query Builder";
   var SLUG = "query-builder";
   var PANEL_TYPE = "query-builder-settings";
