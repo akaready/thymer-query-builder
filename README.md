@@ -14,12 +14,15 @@ Enjoy! 🙏
   </a>
 </p>
 
+![Query Builder plugin UI](./query-builder.png)
 
 &nbsp;
 
 ## 📦 Install
 
-**Recommended:** Use the <a href="https://github.com/ahpatel/thymer-plugins-manager" target="_blank" rel="noopener noreferrer">Thymer Plugins Manager</a> and install via <a href="https://github.com/akaready/thymer-query-builder" target="_blank" rel="noopener noreferrer">this repo's URL</a>. You'll get notifications when new versions ship.
+**Recommended:** In Thymer, open **Plugins → Add plugin → Install from URL**, paste `https://github.com/akaready/thymer-query-builder`, then **Load Plugin** → **Install**. Updates appear under **Plugins → Check for updates**.
+
+**Plugins Manager:** Use the <a href="https://github.com/ahpatel/thymer-plugins-manager" target="_blank" rel="noopener noreferrer">Thymer Plugins Manager</a> and install via <a href="https://github.com/akaready/thymer-query-builder" target="_blank" rel="noopener noreferrer">this repo's URL</a>. You'll get notifications when new versions ship.
 
 **Manual:** copy <a href="plugin.js" target="_blank" rel="noopener noreferrer"><code>plugin.js</code></a> and <a href="plugin.json" target="_blank" rel="noopener noreferrer"><code>plugin.json</code></a> from this repo into Thymer's plugin editor.
 
